@@ -130,8 +130,10 @@
   check('подсказка спрятана, камень начинается с «Моих дел»', heroH() === 0 && cards()[0].getBoundingClientRect().top < 120);
   await pullDown(70);
   check('лёгкое потягивание вниз — подсказка не открылась', heroH() === 0 && !drag);
-  await pullDown(220);
-  check('тугое потягивание вниз — подсказка открылась', heroH() > 100 && !drag);
+  await pullDown(250);
+  check('потянули на 250 px — ещё мало, подсказка не открылась', heroH() === 0 && !drag);
+  await pullDown(380);
+  check('тугое потягивание вниз (380 px) — подсказка открылась', heroH() > 100 && !drag);
   go('notes'); go('rock'); await sleep(50);
   check('ушли с камня и вернулись — подсказка снова спрятана', heroH() === 0);
   check('после жестов не осталось «призраков»', !drag && !document.querySelector('body > .card, body > .note-card, body > .done-wrap'));

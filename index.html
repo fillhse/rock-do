@@ -51,8 +51,12 @@ h1{font-size:21px;margin-bottom:4px}
 /* подсказка с Рокки спрятана над «Моими делами»; открывается тугим потягиванием вниз */
 .hero-wrap{height:0;overflow:hidden;--p:0;display:flex;flex-direction:column;justify-content:flex-end} /* выезжает сверху, как из-под края */
 .hero-wrap.open{--p:1}
-/* как в iOS: всё привязано к геометрии — по мере раскрытия подсказка проявляется из размытия и чуть подрастает */
-.hero-wrap .hero{flex:none;opacity:var(--p);transform:scale(calc(.94 + .06 * var(--p)));filter:blur(calc((1 - var(--p)) * 6px));transform-origin:50% 100%}
+/* всё привязано к геометрии: по мере раскрытия подсказка проявляется из лёгкого размытия и подрастает,
+   Рокки разворачивается; открылась — он мягко подпрыгивает */
+.hero-wrap .hero{flex:none;opacity:var(--p);transform:scale(calc(.91 + .09 * var(--p)));filter:blur(calc((1 - var(--p)) * 3px));transform-origin:50% 100%}
+.hero-wrap .hero img{transform:rotate(calc((1 - var(--p)) * -9deg)) scale(calc(.8 + .2 * var(--p)))}
+.hero-wrap.hop .hero img{animation:rocky-hop .55s cubic-bezier(.3,1.4,.5,1)}
+@keyframes rocky-hop{0%{transform:none}40%{transform:translateY(-7px) rotate(-3deg) scale(1.03)}75%{transform:translateY(1px) rotate(1deg)}100%{transform:none}}
 .count b{color:var(--text)}
 
 /* карточки, которые можно взять пальцем */
@@ -451,7 +455,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.5.5';
+const APP_VERSION = '1.5.6';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -584,28 +588,32 @@ function go(s) {
 /* Подсказка открывается, как «потяни, чтобы обновить»: список в самом верху, тянем вниз — она туго
    выезжает (идёт за пальцем в 2,5 раза медленнее) и, если протянуть на PULL_OPEN, открывается целиком.
    Обычная прокрутка списка не меняется: жест работает только там, где прокручивать вверх уже некуда. */
-const PULL_OPEN = 140;
+const PULL_OPEN = 350; // тугое: почти полэкрана пальцем
 const heroWrap = () => $('hero-wrap');
 const heroFull = () => { const h = heroWrap().firstElementChild; return h.offsetHeight + parseFloat(getComputedStyle(h).marginBottom); };
-// резинка как в iOS: чем дальше тянем, тем туже, к полной высоте подходит, но не достаёт
-const rubber = (x, full) => (1 - 1 / (x * 0.55 / full + 1)) * full;
+// резинка как в iOS: чем дальше тянем, тем туже — к порогу видно около трети подсказки, дальше почти не растёт
+const rubber = (x, full) => (1 - 1 / (x * 0.54 / (PULL_OPEN - SLOP) + 1)) * full;
 const readyH = (full) => rubber(PULL_OPEN - SLOP, full); // столько видно в момент «можно отпускать»
 // высота → вид: к моменту «можно отпускать» подсказка уже проявилась целиком
 function heroShow(w, h, full) {
   w.style.height = Math.max(0, h) + 'px';
   w.style.setProperty('--p', Math.min(1, Math.max(0, h / readyH(full))).toFixed(3));
 }
-/* Пружина как у Apple (SwiftUI .spring: отклик 0,5 с, затухание 0,86) — без резких остановок и лишних
-   отскоков, стартует со скоростью пальца, поэтому движение продолжается, а не начинается заново. */
+/* Пружина как у Apple (SwiftUI .spring: отклик 0,5 с, затухание 0,7 — садится с лёгким отскоком),
+   стартует со скоростью пальца, поэтому движение продолжается, а не начинается заново. */
 let heroAnim = 0;
 function springHero(to, v = 0) {
   cancelAnimationFrame(heroAnim);
-  const w = heroWrap(), full = heroFull(), k = (2 * Math.PI / 0.5) ** 2, c = 4 * Math.PI * 0.86 / 0.5;
+  const w = heroWrap(), full = heroFull(), k = (2 * Math.PI / 0.5) ** 2, c = 4 * Math.PI * 0.7 / 0.5;
   let x = w.offsetHeight, last = performance.now();
   const step = (now) => {
     const dt = Math.min(0.032, (now - last) / 1000) / 4; last = now;
     for (let i = 0; i < 4; i++) { v += (-k * (x - to) - c * v) * dt; x += v * dt; }
-    if (Math.abs(x - to) < 0.5 && Math.abs(v) < 10) return finishHero(to > 0);
+    if (Math.abs(x - to) < 0.5 && Math.abs(v) < 10) {
+      finishHero(to > 0);
+      if (to > 0) { w.classList.add('hop'); setTimeout(() => w.classList.remove('hop'), 700); }
+      return;
+    }
     heroShow(w, x, full);
     heroAnim = requestAnimationFrame(step);
   };
@@ -619,6 +627,7 @@ function finishHero(open) {
 function setHero(open, animate, v) {
   cancelAnimationFrame(heroAnim);
   heroWrap().classList.toggle('open', open);
+  heroWrap().classList.remove('hop');
   if (animate) springHero(open ? heroFull() : 0, v); else finishHero(open);
 }
 let pull = null;
@@ -635,7 +644,7 @@ function pullMove(e) {
   if (!pull.on) { // подхватили на лету (ещё закрывается) — продолжаем с той же высоты, без скачка
     pull.on = true;
     cancelAnimationFrame(heroAnim);
-    pull.x0 = (1 / (1 - Math.min(0.99, w.offsetHeight / full)) - 1) * full / 0.55;
+    pull.x0 = (1 / (1 - Math.min(0.99, w.offsetHeight / full)) - 1) * (PULL_OPEN - SLOP) / 0.54; // обратная к rubber
   }
   const h = rubber(pull.x0 + Math.max(0, d - SLOP), full), now = performance.now();
   if (pull.t) pull.v = (h - pull.h) / Math.max(1, now - pull.t) * 1000; // скорость, с которой отпустят
