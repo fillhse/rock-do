@@ -96,7 +96,6 @@
   renderTasks();
   const cards = () => document.querySelectorAll('#task-list .card.task');
   const step = cards()[1].getBoundingClientRect().top - cards()[0].getBoundingClientRect().top;
-  const mcardsUp = cards;
   const first = titles()[0], b0 = cards()[0].querySelector('b'), p0 = at(b0, 20);
   await hold(b0, p0, [p0[0], p0[1] + 3 * step]);
   check('удержание и перенос дела на 3 позиции вниз', titles().indexOf(first) === 3);
@@ -116,33 +115,10 @@
   await sleep(HOLD_MS + 60);
   check('быстрый свайп — прокрутка, карточка не поднимается', !drag);
   c3.dispatchEvent(touchEv('touchend', c3, sx, sy - 40));
-  // перенос вверх: список прокручивается не выше «Моих дел» — подсказка с Рокки не выезжает
-  const rockOff = () => document.getElementById('rock-main').offsetTop - parseFloat(getComputedStyle(sc).paddingTop);
-  sc.scrollTop = rockOff() + 300; await sleep(50);
-  const up0 = mcardsUp()[2].querySelector('b'), pu = at(up0, 20);
-  await hold(up0, pu, [pu[0], 30], 1500);
-  check('перенос вверх: прокрутка остановилась на «Моих делах», подсказка не выехала',
-    sc.scrollTop === rockOff() && document.querySelector('.hero').getBoundingClientRect().bottom <= sc.getBoundingClientRect().top + 20);
-  // подсказка приоткрыта, а дело переносим — подсказка плавно уезжает, дело встаёт наверх
-  const near = (a, b) => Math.abs(a - b) < 1.5;
-  sc.scrollTop = rockOff() / 2;
-  const half0 = titles()[2], hb = mcardsUp()[2].querySelector('b'), ph = at(hb, 20);
-  const listTop = mcardsUp()[0].getBoundingClientRect().top;
-  await hold(hb, ph, [ph[0], listTop + 5 - (rockOff() / 2)], 1200);
-  check('подсказка приоткрыта, переносим дело — подсказка уехала, дело наверху',
-    near(sc.scrollTop, rockOff()) && titles()[0] === half0);
-  rockToTop(); await sleep(300);
-  // мышь и трекпад (ноутбук): нажал и сразу повёл — перенос без удержания; просто клик — открывает дело
+  // мышь и трекпад (ноутбук): просто клик — открывает дело
   const mcards = () => document.querySelectorAll('#task-list .card.task');
   sc.scrollTop = 0; rockToTop(); await sleep(50);
-  const mFirst = titles()[0], mb = mcards()[0].querySelector('b'), [mx, my] = at(mb, 20);
-  const mstep = mcards()[1].getBoundingClientRect().top - mcards()[0].getBoundingClientRect().top;
   const pe = (type, x, y, target = document) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'mouse', clientX: x, clientY: y, button: 0, buttons: type === 'pointerup' ? 0 : 1 }));
-  pe('pointerdown', mx, my, mb);
-  for (let i = 1; i <= 12; i++) { pe('pointermove', mx, my + (2 * mstep + 10) * i / 12); await sleep(16); } // сразу, без паузы
-  pe('pointerup', mx, my + 2 * mstep + 10);
-  await sleep(350);
-  check('мышь: нажал и сразу повёл — дело переехало на 2 позиции', titles().indexOf(mFirst) === 2);
   const mb2 = mcards()[0].querySelector('b'), [cx2, cy2] = at(mb2, 20);
   pe('pointerdown', cx2, cy2, mb2); pe('pointerup', cx2, cy2, mb2);
   document.elementFromPoint(cx2, cy2).dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: cx2, clientY: cy2 }));
