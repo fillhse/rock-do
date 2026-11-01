@@ -157,7 +157,11 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 #o-task .rockhint{margin:30px 0 16px}
 
 /* напоминание: колёса даты и времени */
-.picker-title{text-align:center;font-size:19px;font-weight:600;margin:24px 0 16px}
+.picker-title{text-align:center;font-size:19px;font-weight:600;margin:14px 0 16px}
+/* переключатели в окне «Когда сделать»: повтор, «весь день / ко времени» */
+.seg{display:flex;gap:4px;background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:4px;margin-bottom:12px}
+.seg button{flex:1;border:none;background:none;color:var(--muted);font:inherit;font-size:13px;padding:9px 2px;border-radius:9px;cursor:pointer}
+.seg button.on{background:rgba(111,56,255,.3);color:#fff;font-weight:600}
 .wheels{display:flex;gap:8px}
 .wheels>div{flex:1}
 .wheels>div:first-child{flex:1.4}
@@ -400,14 +404,16 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 
   <!-- Напоминание -->
   <div class="overlay" id="o-picker">
-    <div class="top"><h1>Напоминание</h1><button class="close" onclick="cancelPicker()">✕</button></div>
+    <div class="top"><h1>Когда сделать</h1><button class="close" onclick="cancelPicker()">✕</button></div>
     <div class="picker-title" id="p-summary"></div>
+    <div class="seg" id="p-rep"></div>
+    <div class="days-row" id="days-row"></div>
+    <div class="seg" id="p-time"></div>
     <div class="wheels">
-      <div><div class="wlbl">Дата</div><div class="wheel" id="w-day"></div></div>
-      <div><div class="wlbl">Час</div><div class="wheel" id="w-hour"></div></div>
-      <div><div class="wlbl">Минуты</div><div class="wheel" id="w-min"></div></div>
+      <div id="wd-day"><div class="wlbl">Дата</div><div class="wheel" id="w-day"></div></div>
+      <div id="wd-hour"><div class="wlbl">Час</div><div class="wheel" id="w-hour"></div></div>
+      <div id="wd-min"><div class="wlbl">Минуты</div><div class="wheel" id="w-min"></div></div>
     </div>
-    <div class="row" onclick="openSheet('rep-sheet')"><span>Повтор</span><span class="val"><span id="p-rep-label">Никогда</span> <span class="chev">›</span></span></div>
     <div class="btnrow">
       <button class="btn dark" onclick="pickNoDue()">Без срока</button>
       <button class="btn" onclick="pickOk()">OK</button>
@@ -428,17 +434,6 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
            oninput="noteChanged()" onkeydown="if(event.key==='Enter'){event.preventDefault();$('n-body').focus()}">
     <div class="ne-meta"><span id="ne-date"></span><span class="ne-sep">|</span><span id="ne-count"></span></div>
     <textarea class="ne-body" id="n-body" placeholder="Начните ввод" oninput="noteChanged()"></textarea>
-  </div>
-
-  <!-- Повтор -->
-  <div class="sheet-back" id="rep-sheet" onclick="if(event.target===this)closeSheet('rep-sheet')">
-    <div class="sheet">
-      <h2>Повтор</h2>
-      <div id="rep-opts"></div>
-      <div class="p-label" style="margin-top:14px">Свои дни</div>
-      <div class="days-row" id="days-row"></div>
-      <button class="btn" onclick="closeSheet('rep-sheet')">Готово</button>
-    </div>
   </div>
 
   <!-- Меню сделанного дела -->
@@ -486,7 +481,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.8.1';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -596,13 +591,15 @@ const timeStr = (d) => d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: 
 const shortDate = (d) => d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' });
 const stamp = (ms, month = 'short') => new Date(ms).toLocaleString('ru-RU', { day: 'numeric', month, hour: '2-digit', minute: '2-digit' });
 const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
-function fmtDue(due) {
+// allDay — дело на весь день, без времени: пропущено только когда день прошёл
+const isOverdue = (due, allDay) => !!due && due < Date.now() && !(allDay && sameDay(due, Date.now()));
+function fmtDue(due, allDay) {
   if (!due) return 'Без срока';
-  if (due < Date.now()) return 'пропущено';
-  const d = new Date(due);
-  if (sameDay(due, Date.now())) return 'Сегодня ' + timeStr(d);
-  if (sameDay(due, Date.now() + DAY)) return 'Завтра ' + timeStr(d);
-  return shortDate(d) + ' ' + timeStr(d);
+  if (isOverdue(due, allDay)) return 'пропущено';
+  const d = new Date(due), t = allDay ? '' : ' ' + timeStr(d);
+  if (sameDay(due, Date.now())) return 'Сегодня' + t;
+  if (sameDay(due, Date.now() + DAY)) return 'Завтра' + t;
+  return shortDate(d) + t;
 }
 const plural = (n, f) => f[n % 10 === 1 && n % 100 !== 11 ? 0 : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 1 : 2];
 
@@ -664,7 +661,7 @@ function taskCard(t) {
     <div class="card task${wait ? ' wait' : ''}" id="task-${t.id}" onpointerdown="pressStart(event,${t.id},'task')" oncontextmenu="return false">
       <div class="hit" onclick="if(!suppressClick)completeTask(${t.id})"><div class="checkbox" id="cb-${t.id}"></div></div>
       <div class="tt" onclick="if(!suppressClick)openTaskEditor(${t.id})"><b></b></div>
-      ${t.due ? `<span class="due" onclick="if(!suppressClick)openTaskEditor(${t.id})">${fmtDue(t.due)}</span>` : ''}
+      ${t.due ? `<span class="due" onclick="if(!suppressClick)openTaskEditor(${t.id})">${fmtDue(t.due, t.allDay)}</span>` : ''}
     </div>`;
 }
 function renderTaskList(box, ts) {
@@ -689,7 +686,7 @@ function completeTask(id) {
   const card = $('task-' + id);
   if (!t || !card || card.dataset.busy) return; // повторный тап во время анимации
   const regular = isRepeating(t);
-  if (regular && isWaiting(t)) { toast('Следующий раз — ' + fmtDue(t.due) + '. Отметишь в этот день.'); return; }
+  if (regular && isWaiting(t)) { toast('Следующий раз — ' + fmtDue(t.due, t.allDay) + '. Отметишь в этот день.'); return; }
   card.dataset.busy = '1';
   haptic('success');
   $('cb-' + id).classList.add('on');
@@ -705,7 +702,7 @@ function completeTask(id) {
   }
   save();
   setTimeout(() => {
-    toast(regular ? 'Сегодняшний раз засчитан! Следующая — ' + fmtDue(t.due) + '.' : 'Готово! Камень гордится тобой.', true);
+    toast(regular ? 'Сегодняшний раз засчитан! Следующий — ' + fmtDue(t.due, t.allDay) + '.' : 'Готово! Камень гордится тобой.', true);
     renderTasks(); renderDone();
     if (current === 'river') renderRiver();
   }, 400);
@@ -753,7 +750,7 @@ function openDoneSheet(id) {
 }
 
 /* окно дела */
-let editId = null, pickDue = null, pickRep = 'never';
+let editId = null, pickDue = null, pickRep = 'never', pickAllDay = false;
 // scrollHeight не включает рамку, а box-sizing — border-box: добавляем её, иначе текст подрезается
 function autoGrow(el) { el.style.height = 'auto'; el.style.height = (el.scrollHeight + el.offsetHeight - el.clientHeight) + 'px'; }
 function onTitleInput() { $('save-btn').disabled = !$('t-title').value.trim(); autoGrow($('t-title')); }
@@ -762,6 +759,7 @@ function openTaskEditor(id) {
   editId = t ? t.id : null;
   pickDue = t ? t.due : null;
   pickRep = t ? t.rep : 'never';
+  pickAllDay = !!(t && t.allDay);
   $('te-title').textContent = t ? 'Дело' : 'Новое дело';
   $('t-title').value = t ? t.title : '';
   $('save-btn').textContent = t ? 'Сохранить' : 'Положить';
@@ -773,12 +771,12 @@ function openTaskEditor(id) {
   if (!t) setTimeout(() => $('t-title').focus(), 250);
 }
 function updateDueLabel() {
-  $('t-due-label').textContent = fmtDue(pickDue) + (pickRep !== 'never' ? ' · ' + repLabel(pickRep) : '');
+  $('t-due-label').textContent = fmtDue(pickDue, pickAllDay) + (pickDue && pickRep !== 'never' ? ' · ' + repLabel(pickRep) : '');
 }
 function saveTask() {
   const title = $('t-title').value.trim().replace(/\s+/g, ' ');
   if (!title) return;
-  const fields = { title, due: pickDue, rep: pickDue ? pickRep : 'never', mday: pickDue ? new Date(pickDue).getDate() : null };
+  const fields = { title, due: pickDue, rep: pickDue ? pickRep : 'never', allDay: !!pickDue && pickAllDay, mday: pickDue ? new Date(pickDue).getDate() : null };
   const t = editId && db.tasks.find((x) => x.id === editId);
   if (t) Object.assign(t, fields);
   else db.tasks.push({ id: newId(), ...fields, pos: topPos(db.tasks) });
@@ -815,60 +813,100 @@ function wheelInit(el, items, selIdx, onSel, wrap) {
   const start = mid * len + selIdx;
   requestAnimationFrame(() => { el.scrollTop = start * ITEM_H; apply(start); });
 }
+/* Окно «Когда сделать». Сначала — как часто (один раз / каждый день / по дням недели / каждый месяц),
+   от этого зависит, что выбирать дальше: один раз и каждый месяц — дату колесом, по дням — дни недели
+   (дату не выбираем — первый раз будет в ближайший из них). Отдельно — «весь день» (без времени)
+   или «ко времени» (колёса часов и минут). Видно только то, что нужно для выбранного. */
 const DAYS_PAST = 180, DAYS_FUT = 365;
-let pDay = 0, pHour = 10, pMin = 0, repBefore = 'never';
+let pDay = 0, pHour = 10, pMin = 0, pickBefore = null;
+const REP_MODES = [['never', 'Один раз'], ['daily', 'Каждый день'], ['days', 'По дням'], ['monthly', 'Каждый месяц']];
+const repMode = () => (pickRep.startsWith('days:') ? 'days' : pickRep);
+const two = (n) => String(n).padStart(2, '0');
 function openPicker() {
-  repBefore = pickRep; // ✕ отменяет повтор, выбранный в этом окне
+  pickBefore = { pickRep, pickAllDay }; // ✕ отменяет выбранное в этом окне
+  if (pickRep === 'weekly') pickRep = 'days:' + isoDay(new Date(pickDue || Date.now())); // старое «каждую неделю» — это один день недели
   const init = new Date(pickDue || todayAt(10, 0) + DAY);
   const today = new Date().setHours(0, 0, 0, 0);
-  const days = Array.from({ length: DAYS_PAST + DAYS_FUT + 1 }, (_, k) => {
-    const i = k - DAYS_PAST, d = new Date(today); d.setDate(d.getDate() + i);
-    return i === 0 ? 'Сегодня' : shortDate(d);
-  });
   pDay = Math.max(-DAYS_PAST, Math.min(DAYS_FUT, Math.round((new Date(init).setHours(0, 0, 0, 0) - today) / DAY)));
-  pHour = init.getHours(); pMin = init.getMinutes();
-  const two = (n) => String(n).padStart(2, '0');
-  wheelInit($('w-day'), days, pDay + DAYS_PAST, (i) => { pDay = i - DAYS_PAST; pickerSummary(); });
-  wheelInit($('w-hour'), Array.from({ length: 24 }, (_, i) => two(i)), pHour, (i) => { pHour = i; pickerSummary(); }, true);
-  wheelInit($('w-min'), Array.from({ length: 60 }, (_, i) => two(i)), pMin, (i) => { pMin = i; pickerSummary(); }, true);
-  renderRep(); pickerSummary();
+  pHour = pickDue && !pickAllDay ? init.getHours() : 10; pMin = pickDue && !pickAllDay ? init.getMinutes() : 0;
   openOverlay('o-picker');
+  pickerLayout();
+}
+// показать нужное и (заново) раскрутить видимые колёса: у скрытого колеса браузер не помнит прокрутку
+function pickerLayout() {
+  const mode = repMode(), showDate = mode === 'never' || mode === 'monthly';
+  $('p-rep').innerHTML = REP_MODES.map(([v, l]) => `<button class="${v === mode ? 'on' : ''}" onclick="setRepMode('${v}')">${l}</button>`).join('');
+  const cur = repDays(pickRep);
+  $('days-row').style.display = mode === 'days' ? '' : 'none';
+  $('days-row').innerHTML = DAY_SHORT.map((n, i) => `<div class="day-chip ${cur.includes(i + 1) ? 'sel' : ''}" onclick="toggleDay(${i + 1})">${n}</div>`).join('');
+  $('p-time').innerHTML = `<button class="${pickAllDay ? 'on' : ''}" onclick="setAllDay(true)">Весь день</button>` +
+    `<button class="${pickAllDay ? '' : 'on'}" onclick="setAllDay(false)">Ко времени</button>`;
+  $('wd-day').style.display = showDate ? '' : 'none';
+  $('wd-hour').style.display = $('wd-min').style.display = pickAllDay ? 'none' : '';
+  if (showDate) {
+    const today = new Date().setHours(0, 0, 0, 0);
+    const days = Array.from({ length: DAYS_PAST + DAYS_FUT + 1 }, (_, k) => {
+      const i = k - DAYS_PAST, d = new Date(today); d.setDate(d.getDate() + i);
+      return i === 0 ? 'Сегодня' : shortDate(d);
+    });
+    wheelInit($('w-day'), days, pDay + DAYS_PAST, (i) => { pDay = i - DAYS_PAST; pickerSummary(); });
+  }
+  if (!pickAllDay) {
+    wheelInit($('w-hour'), Array.from({ length: 24 }, (_, i) => two(i)), pHour, (i) => { pHour = i; pickerSummary(); }, true);
+    wheelInit($('w-min'), Array.from({ length: 60 }, (_, i) => two(i)), pMin, (i) => { pMin = i; pickerSummary(); }, true);
+  }
+  pickerSummary();
+}
+function setRepMode(v) {
+  if (v === 'days') pickRep = 'days:' + isoDay(pickerDate()); // начнём с дня недели выбранной даты
+  else pickRep = v;
+  pickerLayout();
+}
+function setAllDay(v) { pickAllDay = v; pickerLayout(); }
+function toggleDay(d) {
+  const cur = repDays(pickRep);
+  const next = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => a - b);
+  if (!next.length) return; // хотя бы один день
+  pickRep = 'days:' + next.join(',');
+  pickerLayout();
 }
 function pickerDate() {
   const d = new Date(); d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() + pDay); d.setHours(pHour, pMin);
   return d;
 }
-function pickerSummary() { const d = pickerDate(); $('p-summary').textContent = shortDate(d) + ' ' + timeStr(d); }
+function pickerSummary() {
+  const mode = repMode(), time = pickAllDay ? 'весь день' : two(pHour) + ':' + two(pMin), d = pickerDate();
+  $('p-summary').textContent =
+    mode === 'never' ? shortDate(d) + ', ' + time :
+    mode === 'daily' ? 'Каждый день, ' + time :
+    mode === 'days' ? repLabel(pickRep) + ', ' + time :
+    'Каждый месяц, ' + d.getDate() + '-го, ' + time;
+}
+// первый срок: один раз и каждый месяц — выбранная дата; каждый день и по дням — ближайший подходящий
+// день, начиная с сегодня. В прошлое не ставим: «весь день» — прошлым считается только прошедший день
 function pickOk() {
-  let d = pickerDate();
-  if (d.getTime() <= Date.now()) { // в прошлое не ставим
-    d = new Date(Date.now() + 3600e3); d.setSeconds(0, 0);
-    toast('Это время уже прошло — выбрал ближайшее.');
+  const now = new Date(), dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const at = (base) => { const d = new Date(base); if (pickAllDay) d.setHours(0, 0, 0, 0); else d.setHours(pHour, pMin, 0, 0); return d; };
+  const passed = (d) => (pickAllDay ? d < dayStart : d <= now);
+  const mode = repMode();
+  let d;
+  if (mode === 'never' || mode === 'monthly') {
+    d = at(pickerDate());
+    if (passed(d)) {
+      d = pickAllDay ? at(now) : new Date(Date.now() + 3600e3); d.setSeconds(0, 0);
+      toast(pickAllDay ? 'Этот день уже прошёл — поставил на сегодня.' : 'Это время уже прошло — выбрал ближайшее.');
+    }
+  } else {
+    const days = repDays(pickRep);
+    d = at(now);
+    while (passed(d) || (days.length && !days.includes(isoDay(d)))) d.setDate(d.getDate() + 1);
   }
-  const days = repDays(pickRep); // первый раз — в ближайший из выбранных дней
-  while (days.length && !days.includes(isoDay(d))) d.setDate(d.getDate() + 1);
   pickDue = d.getTime();
   updateDueLabel(); closeOverlay('o-picker');
 }
-function cancelPicker() { pickRep = repBefore; closeOverlay('o-picker'); }
-function pickNoDue() { pickDue = null; pickRep = 'never'; updateDueLabel(); closeOverlay('o-picker'); }
-function renderRep() {
-  $('p-rep-label').textContent = repLabel(pickRep);
-  const opts = { never: 'Никогда', daily: 'Каждый день', weekly: 'Каждую неделю', monthly: 'Каждый месяц' };
-  $('rep-opts').innerHTML = Object.entries(opts).map(([v, l]) =>
-    `<div class="opt ${v === pickRep ? 'sel' : ''}" onclick="setRep('${v}')">${l}</div>`).join('');
-  const cur = repDays(pickRep);
-  $('days-row').innerHTML = DAY_SHORT.map((n, i) =>
-    `<div class="day-chip ${cur.includes(i + 1) ? 'sel' : ''}" onclick="toggleDay(${i + 1})">${n}</div>`).join('');
-}
-function setRep(v) { pickRep = v; renderRep(); closeSheet('rep-sheet'); }
-function toggleDay(d) {
-  const cur = repDays(pickRep);
-  const next = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => a - b);
-  pickRep = next.length ? 'days:' + next.join(',') : 'never';
-  renderRep();
-}
+function cancelPicker() { pickRep = pickBefore.pickRep; pickAllDay = pickBefore.pickAllDay; closeOverlay('o-picker'); }
+function pickNoDue() { pickDue = null; pickRep = 'never'; pickAllDay = false; updateDueLabel(); closeOverlay('o-picker'); }
 
 /* ===================== камушки ===================== */
 // примерная высота карточки, чтобы раскладывать по колонкам: заголовок до 2 строк, текст до 4
@@ -1004,7 +1042,7 @@ const riverOpen = () => byPos(db.tasks).filter((t) => !isWaiting(t) && !(isRepea
 function riverMood() {
   const open = riverOpen(), now = Date.now();
   if (!open.length) return 'clear';
-  if (open.filter((t) => t.due && t.due < now).length >= 4) return 'overload';
+  if (open.filter((t) => isOverdue(t.due, t.allDay)).length >= 4) return 'overload';
   const last = db.done.reduce((m, d) => Math.max(m, d.at), 0);
   if (now - last > 2 * DAY) return 'idle';
   return 'normal';
@@ -1045,7 +1083,7 @@ function renderRiver() {
     $('rv-title').textContent = 'Камушек дня';
     body.innerHTML = text(MOOD_LINE[mood]) + `<div class="rv-pebs">${open.map((t) => `
       <div class="rv-peb${t.id === riverPick ? ' on' : ''}" onclick="riverPick=${t.id};renderRiver()">
-        <img src="img/pebble.webp" alt=""><b>${esc(t.title)}</b>${t.due ? `<small>${fmtDue(t.due)}</small>` : ''}</div>`).join('')}</div>
+        <img src="img/pebble.webp" alt=""><b>${esc(t.title)}</b>${t.due ? `<small>${fmtDue(t.due, t.allDay)}</small>` : ''}</div>`).join('')}</div>
       <button class="btn rv-btn" id="throw-btn" onclick="throwPebble()" ${riverPick === null ? 'disabled' : ''}>
         <img src="img/pebble.webp" alt=""><span>Бросить в речку</span></button>`;
     return;
