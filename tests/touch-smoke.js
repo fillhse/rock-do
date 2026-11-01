@@ -115,6 +115,17 @@
   await sleep(HOLD_MS + 60);
   check('быстрый свайп — прокрутка, карточка не поднимается', !drag);
   c3.dispatchEvent(touchEv('touchend', c3, sx, sy - 40));
+  // камень открыт с «Моих дел»: первое дело стоит у верхнего края — дрожь пальца не утаскивает список к подсказке,
+  // а если повести дело вверх, список, как и раньше, прокручивается
+  const firstB = () => document.querySelector('#task-list .card.task b');
+  rockToTop(); await sleep(50);
+  const s0 = sc.scrollTop, f1 = firstB(), pf = at(f1, 20);
+  await hold(f1, pf, [pf[0], pf[1] - 5], 800);
+  check('первое дело у края: подняли, палец дрогнул — список стоит', Math.abs(sc.scrollTop - s0) < 1);
+  rockToTop(); await sleep(50);
+  const f2 = firstB(), pf2 = at(f2, 20);
+  await hold(f2, pf2, [pf2[0], pf2[1] - 60], 500);
+  check('первое дело повели вверх — список прокручивается', sc.scrollTop < s0 - 20);
   // мышь и трекпад (ноутбук): просто клик — открывает дело
   const mcards = () => document.querySelectorAll('#task-list .card.task');
   sc.scrollTop = 0; rockToTop(); await sleep(50);

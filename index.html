@@ -450,7 +450,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.5.1';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -1022,7 +1022,7 @@ function startDrag(card, id, type, px, py) {
   card.classList.add('drag-src');
   $('trash').classList.add('show');
   document.documentElement.classList.add('dragging');
-  drag = { id, type, ghost, dx: px - r.left, dy: py - r.top, w: r.width, h: r.height, px, py };
+  drag = { id, type, ghost, dx: px - r.left, dy: py - r.top, w: r.width, h: r.height, px, py, y0: r.top + r.height / 2 };
   requestAnimationFrame(autoScroll);
 }
 
@@ -1049,7 +1049,10 @@ function autoScroll() {
     const top = sc.getBoundingClientRect().top + (parseFloat(getComputedStyle(sc).paddingTop) || 0) + 50;
     const hotTop = $('trash-btn').getBoundingClientRect().top - 12, bottom = hotTop - 70;
     const y = drag.py - drag.dy + drag.h / 2;
-    const v = y < top ? -Math.min(14, (top - y) / 4) : y > bottom && y < hotTop ? Math.min(14, (y - bottom) / 4) : 0;
+    // прокручиваем, только если карточку повели к краю: поднятая у самого края (первое дело при открытии
+    // камня с «Моих дел») от дрожи пальца не должна утаскивать список
+    const toward = (d) => (y - drag.y0) * d > 24;
+    const v = y < top && toward(-1) ? -Math.min(14, (top - y) / 4) : y > bottom && y < hotTop && toward(1) ? Math.min(14, (y - bottom) / 4) : 0;
     const before = sc.scrollTop;
     if (v) sc.scrollTop += v;
     if (sc.scrollTop !== before) dragMove(drag.px, drag.py);
