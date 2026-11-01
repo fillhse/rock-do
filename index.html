@@ -491,7 +491,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.8.4';
+const APP_VERSION = '1.8.5';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -678,17 +678,34 @@ function renderTaskList(box, ts) {
   box.innerHTML = ts.map(taskCard).join('');
   ts.forEach((t) => { box.querySelector(`#task-${t.id} b`).textContent = t.title; });
 }
+/* «Регулярные» идут распорядком дня, сами (в «Моих делах» порядок ручной — перетаскиванием):
+   - пропущенные с прошлых дней — первыми, их надо не потерять;
+   - сегодняшние — по времени: утренние сверху;
+   - без времени — в середине дня, в 13:00, после дел ровно на 13:00: не вытесняют утренние и обеденные;
+   - ждущие своего дня — в конце, ближайшие раньше.
+   При равенстве — порядок, в котором их расставили. */
+const NO_TIME_AT = 13 * 60 + 0.5;
+function dayTimeKey(t) {
+  if (isWaiting(t)) return [2, t.due];
+  if (new Date(t.due).setHours(0, 0, 0, 0) < new Date().setHours(0, 0, 0, 0)) return [0, t.due];
+  const d = new Date(t.due);
+  return [1, t.allDay ? NO_TIME_AT : d.getHours() * 60 + d.getMinutes()];
+}
+function byDayTime(a, b) {
+  const x = dayTimeKey(a), y = dayTimeKey(b);
+  return x[0] - y[0] || x[1] - y[1] || a.pos - b.pos;
+}
 function renderTasks() {
   const all = byPos(db.tasks);
   const mine = all.filter((t) => !isRepeating(t)), regular = all.filter((t) => isRepeating(t) && !doneToday(t));
   $('task-count').textContent = mine.length;
   renderTaskList($('task-list'), mine);
   if (!all.length) $('task-list').innerHTML = '<div class="empty"><img src="img/rock-sleep.webp" alt=""><div>Пока камень свободен.<br>Положи на него первое дело.</div></div>';
-  const reg = $('reg-list'); // порядок в обоих разделах ручной — перетаскиванием
+  const reg = $('reg-list');
   // раздел виден всегда; счётчик — сколько осталось на сегодня (ждущие своего дня не в счёт)
   const left = regular.filter((t) => !isWaiting(t)).length;
   reg.innerHTML = `<div class="sec-h">Регулярные <b>${left}</b></div><div></div>`;
-  renderTaskList(reg.lastElementChild, regular);
+  renderTaskList(reg.lastElementChild, [...regular].sort(byDayTime));
 }
 
 function completeTask(id) {
@@ -1232,7 +1249,8 @@ function layoutRect(el) {
 function reorder(x, y) {
   if (drag.type === 'done') return; // сделанные не переставляются — только в корзину
   const me = (drag.type === 'task' ? db.tasks : db.notes).find((it) => it.id === drag.id);
-  // дело переставляется только внутри своего раздела: «Мои дела» или «Регулярные»
+  if (drag.type === 'task' && isRepeating(me)) return; // «Регулярные» идут по времени — переставлять нечего, только в корзину
+  // дело переставляется только внутри своего раздела («Мои дела»)
   const sorted = drag.type === 'task' ? byPos(db.tasks).filter((t) => !isRepeating(t) === !isRepeating(me)) : byPos(db.notes);
   const rectOf = (it) => { const el = it !== me && dragEl(it.id); return el ? layoutRect(el) : null; };
   let order;
