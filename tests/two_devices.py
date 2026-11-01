@@ -9,16 +9,19 @@
 Потом открыть http://127.0.0.1:8781/tests/two-devices.html — там слева «телефон», справа «Mac» и тесты.
 --old-b 1.4.0 — «Mac» считает себя старой версией (проверка самообновления).
 --b-index ФАЙЛ — «Mac» получает другой index.html (например, прошлую выкладку из git).
+--delay 0.4 — каждый запрос к облаку отвечает с задержкой (как сеть до серверов Telegram).
 """
 import argparse
 import json
 import os
 import re
 import threading
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLOUD, LOCK = {}, threading.Lock()
+DELAY = 0.0  # задержка ответа облака, с
 
 FAKE_TG = """<script>
 /* подставной Telegram: всё, что приложение вызывает, плюс облако на общем сервере */
@@ -80,6 +83,8 @@ def make_handler(old_version, index_file=''):
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))) or b'{}')
             op = self.path.rsplit('/', 1)[-1]
+            if op != 'reset':
+                time.sleep(DELAY)
             with LOCK:
                 if op == 'set':
                     CLOUD[body['k']] = body['v']; res = True
@@ -103,7 +108,9 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--old-b', default='', help='версия, которой притворяется второе устройство')
     ap.add_argument('--b-index', default='', help='index.html для второго устройства')
+    ap.add_argument('--delay', type=float, default=0.0, help='задержка ответа облака, с')
     args = ap.parse_args()
+    DELAY = args.delay
     a = ThreadingHTTPServer(('127.0.0.1', 8781), make_handler(''))
     b = ThreadingHTTPServer(('127.0.0.1', 8782), make_handler(args.old_b, args.b_index))
     threading.Thread(target=b.serve_forever, daemon=True).start()

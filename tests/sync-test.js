@@ -127,7 +127,7 @@
   delete store.t0;
   await cloudSync();
   const intact = JSON.stringify(db.tasks) === localBefore;
-  await cloudSync();
+  for (let i = 0; i < 8 && !store.t0; i++) await cloudSync(); // даём «чужой записи» шанс долететь, потом чиним своей копией
   check('повреждённое облако: локальное цело, облако восстановлено', intact && JSON.stringify(remote().tasks) === JSON.stringify(db.tasks));
 
   // 11. id не совпадают между устройствами

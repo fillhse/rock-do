@@ -446,7 +446,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.4.3';
+const APP_VERSION = '1.4.4';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -1123,17 +1123,25 @@ function endDrag(cancelled) {
 const CHUNK = 4000, MAX_KEYS = 1000, TOMB_DAYS = 180;
 let cloud = null;      // Telegram.WebApp.CloudStorage, когда приложение открыто в Telegram
 let cloudKeys = {};    // что сейчас лежит в облаке: ключ → значение (пишем только изменившееся)
-let cloudTimer, cloudAt = 0, syncing = null, syncAgain = false, cloudBroken = 0;
-// живая сверка: после каждой записи устройство обновляет метку rev («последнее изменение»);
-// пока Rocky на экране, другие устройства раз в POLL_MS читают только её и при изменении подтягивают данные
+let cloudTimer, cloudAt = 0, syncing = null, syncAgain = false, cloudBroken = 0, readOnce = false, badRev = null;
+let readMs = 0, writeMs = 0; // сколько заняли последние чтение и запись — видно в «Хранение»
+// Живая сверка. Каждая запись ставит метку rev: время-случайное-версия-контрольная сумма данных.
+// Пока Rocky на экране, другие устройства раз в POLL_MS читают только метку и при изменении подтягивают данные.
+// Каждый запрос к облаку Telegram — это поход на его сервер (~0,3–0,6 с), поэтому запросов на одно изменение
+// минимум и они идут параллельно: запись — одним заходом, чтение — одним заходом.
 const POLL_MS = 500, POLL_MAX = 8000;
 let lastRev = null, pollTimer = null, pollDelay = POLL_MS;
+class PartialRead extends Error {} // прочитали посреди чужой записи — данные ещё не все
 const cs = (method, ...args) => new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('timeout')), 10000);
   cloud[method](...args, (err, val) => { clearTimeout(timer); if (err) reject(new Error(err)); else resolve(val); });
 });
+// Раскладка всегда в одном порядке (элементы по id, удалённое по ключу): одинаковые данные дают одинаковый текст
+// на любом устройстве. Иначе устройства считали бы облако «изменившимся» и перезаписывали его друг за другом.
 function cloudPack(d) {
-  const parts = { t: d.tasks, n: d.notes, d: d.done, m: { deleted: d.deleted, river: d.river, nextId: d.nextId } };
+  const byId = (arr) => [...arr].sort((a, b) => a.id - b.id);
+  const deleted = Object.fromEntries(Object.entries(d.deleted || {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+  const parts = { t: byId(d.tasks), n: byId(d.notes), d: byId(d.done), m: { deleted, river: d.river, nextId: d.nextId } };
   const keys = {}, idx = { v: 1, app: APP_VERSION };
   for (const [p, val] of Object.entries(parts)) {
     const s = JSON.stringify(val);
@@ -1149,32 +1157,71 @@ function cloudUnpack(keys) {
   const m = part('m');
   return { tasks: part('t'), notes: part('n'), done: part('d'), deleted: m.deleted || {}, river: m.river || null, nextId: m.nextId || 100 };
 }
+// контрольная сумма записи (FNV-1a) по описи и кускам — так читающий узнаёт, долетела ли запись целиком
+const idxKeys = (idxRaw) => { const idx = JSON.parse(idxRaw); return ['idx', ...['t', 'n', 'd', 'm'].flatMap((p) => Array.from({ length: idx[p] }, (_, i) => p + i))]; };
+function packSum(keys, names) {
+  let h = 0x811c9dc5;
+  for (const k of [...names].sort()) {
+    const s = k + '\u0001' + (keys[k] || '');
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  }
+  return (h >>> 0).toString(36);
+}
 async function cloudRead() {
-  const all = await cs('getKeys');
-  cloudKeys = Object.fromEntries(all.map((k) => [k, undefined])); // значения узнаем ниже; лишние ключи потом удалим
-  if (!all.includes('idx')) return null; // в облаке пусто
-  const keys = await cs('getItems', all);
-  Object.assign(cloudKeys, keys);
+  const t0 = Date.now();
+  let keys;
+  if (!readOnce) { // первый раз в сеансе — узнаём, какие ключи есть
+    const all = await cs('getKeys');
+    keys = all.length ? await cs('getItems', all) : {};
+  } else { // дальше — одним запросом: опись, метка и куски по последней известной описи
+    keys = await cs('getItems', [...new Set(['idx', 'rev', ...Object.keys(cloudKeys)])]);
+    if (keys.idx) {
+      const missing = idxKeys(keys.idx).filter((k) => !(k in keys)); // данные выросли — докачать новые куски
+      if (missing.length) Object.assign(keys, await cs('getItems', missing));
+    }
+  }
+  cloudKeys = Object.fromEntries(Object.entries(keys).filter(([, v]) => v !== '')); // пустое значение — ключа нет
+  readOnce = true; readMs = Date.now() - t0;
+  if (!keys.idx) { lastRev = keys.rev || null; return null; } // в облаке пусто
+  const sum = (keys.rev || '').split('-')[3];
+  if (sum && packSum(keys, idxKeys(keys.idx)) !== sum) {
+    // Сумма не сошлась. Впервые для этой метки — чужая запись, скорее всего, ещё в пути: перечитаем на следующей
+    // проверке. Та же метка второй раз — это не «в пути», а смесь двух одновременных записей: берём прочитанное
+    // (объединение ничего не теряет) — сверка ниже допишет целую версию.
+    if (keys.rev !== badRev) { badRev = keys.rev; throw new PartialRead(); }
+  }
+  badRev = null;
   lastRev = keys.rev || null;
   try { updateTo(JSON.parse(keys.idx).app); } catch (e) { /* опись разберёт cloudUnpack ниже */ }
   return cloudUnpack(keys);
 }
 async function cloudWrite(keys) {
   if (Object.keys(keys).length > MAX_KEYS) throw new Error('cloud full');
-  const changed = Object.keys(keys).filter((k) => k !== 'idx' && cloudKeys[k] !== keys[k]);
-  await Promise.all(changed.map((k) => cs('setItem', k, keys[k]).then(() => { cloudKeys[k] = keys[k]; })));
-  const idxChanged = cloudKeys.idx !== keys.idx;
-  if (idxChanged) { await cs('setItem', 'idx', keys.idx); cloudKeys.idx = keys.idx; } // опись — после кусков
+  const changed = Object.keys(keys).filter((k) => cloudKeys[k] !== keys[k]);
   const stale = Object.keys(cloudKeys).filter((k) => !(k in keys) && k !== 'rev');
-  if (stale.length) { await cs('removeItems', stale); stale.forEach((k) => delete cloudKeys[k]); }
-  if (changed.length || idxChanged || stale.length) { // метка — последней: другие устройства увидят уже целые данные
-    const rev = Date.now() + '-' + Math.random().toString(36).slice(2, 7) + '-' + APP_VERSION;
-    await cs('setItem', 'rev', rev);
-    cloudKeys.rev = lastRev = rev;
-  }
+  if (!changed.length && !stale.length) return;
+  const t0 = Date.now();
+  const rev = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${APP_VERSION}-${packSum(keys, Object.keys(keys))}`;
+  // всё одним заходом, параллельно: если кто-то прочитает посреди записи, сумма в метке не сойдётся — он перечитает
+  await Promise.all([
+    ...changed.map((k) => cs('setItem', k, keys[k])),
+    ...(stale.length ? [cs('removeItems', stale)] : []),
+    cs('setItem', 'rev', rev),
+  ]);
+  changed.forEach((k) => { cloudKeys[k] = keys[k]; });
+  stale.forEach((k) => delete cloudKeys[k]);
+  cloudKeys.rev = lastRev = rev;
+  writeMs = Date.now() - t0;
 }
-// слияние двух копий: по каждому элементу побеждает более поздняя правка (при равенстве — своя);
-// удалённое не возвращается, если его не правили после удаления
+// слияние двух копий: по каждому элементу побеждает более поздняя правка; удалённое не возвращается,
+// если его не правили после удаления. При равном времени правки победителя выбираем по самим данным —
+// одинаково на всех устройствах. «Своя копия при ничьей» давала вечную перезапись: у стартовых примеров
+// время правки нулевое, а содержимое (время создания) на каждом устройстве своё.
+function later(a, b) {
+  const ua = a.upd || 0, ub = b.upd || 0;
+  if (ua !== ub) return ua > ub;
+  return JSON.stringify(a) > JSON.stringify(b); // ничья — одинаковый выбор на любом устройстве
+}
 function mergeData(local, remote) {
   const now = Date.now(), deleted = {};
   for (const src of [remote.deleted, local.deleted]) for (const [k, ts] of Object.entries(src || {})) {
@@ -1185,12 +1232,12 @@ function mergeData(local, remote) {
     const byId = new Map();
     for (const it of [...remote[kind], ...local[kind]]) {
       const cur = byId.get(it.id);
-      if (!cur || (it.upd || 0) >= (cur.upd || 0)) byId.set(it.id, it);
+      if (!cur || later(it, cur)) byId.set(it.id, it);
     }
     out[kind] = [...byId.values()].filter((it) => !(deleted[p + ':' + it.id] >= (it.upd || 0))).sort((a, b) => a.id - b.id);
   }
   const lr = local.river, rr = remote.river;
-  out.river = !lr ? rr : !rr ? lr : (rr.upd || 0) > (lr.upd || 0) ? rr : lr;
+  out.river = !lr ? rr : !rr ? lr : later(rr, lr) ? rr : lr;
   return out;
 }
 // не сверялось: нет отметки о сверке и нет следов учёта правок (их оставляет только версия с облаком)
@@ -1203,25 +1250,32 @@ function applyMerged(m) {
   renderAll();
   if (current === 'river') renderRiver();
 }
-function cloudSync() {
+// mode 'local' — после своей правки: если облако в этом сеансе уже читали, пишем сразу, без чтения.
+// Свежесть обеспечивает проверка раз в полсекунды; если кто-то успел записать раньше, копии сойдутся
+// на ближайшей проверке — каждое устройство при чтении объединяет облако со своим и дописывает недостающее.
+function cloudSync(mode) {
   if (!cloud) return Promise.resolve();
   if (syncing || drag) { syncAgain = true; return syncing || Promise.resolve(); } // во время переноса карточки не трогаем данные
   syncing = (async () => {
     try {
-      const remote = await cloudRead();
-      if (remote && neverSynced()) {
-        // Устройство ещё ни разу не сверялось, а в облаке уже есть данные — берём облако целиком.
-        // Объединять нельзя: у независимых копий одинаковые id (стартовые примеры) и нет истории удалений —
-        // выполненное или удалённое на другом устройстве «воскресло» бы, появились бы дубли. Своё — в резервную копию.
-        try { if (!localStorage.getItem(STORE + '-before-cloud')) localStorage.setItem(STORE + '-before-cloud', JSON.stringify(db)); } catch (e) { /* нет доступа */ }
-        applyMerged(remote);
-      } else if (remote) applyMerged(mergeData(db, remote));
-      if (remote || !db.fresh) await cloudWrite(cloudPack(db)); // стартовые примеры в пустое облако не отправляем
+      let remote = null;
+      if (!(mode === 'local' && readOnce)) {
+        remote = await cloudRead();
+        if (remote && neverSynced()) {
+          // Устройство ещё ни разу не сверялось, а в облаке уже есть данные — берём облако целиком.
+          // Объединять нельзя: у независимых копий одинаковые id (стартовые примеры) и нет истории удалений —
+          // выполненное или удалённое на другом устройстве «воскресло» бы, появились бы дубли. Своё — в резервную копию.
+          try { if (!localStorage.getItem(STORE + '-before-cloud')) localStorage.setItem(STORE + '-before-cloud', JSON.stringify(db)); } catch (e) { /* нет доступа */ }
+          applyMerged(remote);
+        } else if (remote) applyMerged(mergeData(db, remote));
+      }
+      if (remote || !db.fresh || 'idx' in cloudKeys) await cloudWrite(cloudPack(db)); // стартовые примеры в пустое облако не отправляем
       if (!db.synced) { db.synced = true; saveLocal(); }
       cloudAt = Date.now(); cloudBroken = 0;
     } catch (e) {
-      // нет сети или облако недоступно — локальная копия цела, повторим при следующей правке или открытии.
-      // Облако дважды подряд не читается (кусок записан наполовину) — перезаписываем своей копией
+      // Нет сети или облако недоступно — локальная копия цела, повторим при следующей правке или проверке.
+      // Чужая запись в пути (PartialRead) — метка не принята, перечитаем на ближайшей проверке.
+      // Облако дважды не читается вовсе (кусок потерян) — перезаписываем своей копией, остальные дообъединятся.
       if (e instanceof SyntaxError && ++cloudBroken >= 2) {
         try { await cloudWrite(cloudPack(db)); cloudBroken = 0; cloudAt = Date.now(); } catch (_) { /* в следующий раз */ }
       }
@@ -1249,6 +1303,7 @@ function updateTo(v) {
 async function cloudPoll() {
   pollTimer = null;
   if (!cloud || document.visibilityState !== 'visible') return;
+  const started = Date.now();
   try {
     if (!syncing && !drag) {
       const rev = await cs('getItem', 'rev');
@@ -1259,20 +1314,21 @@ async function cloudPoll() {
   } catch (e) {
     pollDelay = Math.min(POLL_MAX, pollDelay * 2); // облако не отвечает — реже, пока не оживёт
   }
-  schedulePoll();
+  schedulePoll(Math.max(0, pollDelay - (Date.now() - started))); // раз в полсекунды от начала до начала
 }
-function schedulePoll() {
-  if (cloud && !pollTimer && document.visibilityState === 'visible') pollTimer = setTimeout(cloudPoll, pollDelay);
+function schedulePoll(ms = pollDelay) {
+  if (cloud && !pollTimer && document.visibilityState === 'visible') pollTimer = setTimeout(cloudPoll, ms);
 }
-function cloudLater(ms = 300) {
+function cloudLater(ms = 150) { // короткая пауза — несколько быстрых нажатий уходят одной записью
   if (!cloud) return;
   clearTimeout(cloudTimer);
-  cloudTimer = setTimeout(() => { cloudTimer = null; cloudSync(); }, ms);
+  cloudTimer = setTimeout(() => { cloudTimer = null; cloudSync('local'); }, ms);
 }
 function renderSync() { $('sync-val').textContent = cloud ? 'Облако Telegram' : 'Только телефон'; }
 function syncInfo() {
   toast(cloud ? 'Дела и камушки хранятся в облаке Telegram и видны на всех твоих устройствах.' +
-    (cloudAt ? ' Сверено в ' + timeStr(new Date(cloudAt)) + '.' : '')
+    (cloudAt ? ' Сверено в ' + timeStr(new Date(cloudAt)) + '.' : '') +
+    (writeMs || readMs ? ` Запись ${(writeMs / 1000).toFixed(1)} с, чтение ${(readMs / 1000).toFixed(1)} с.` : '')
     : 'Облако работает, когда Rocky открыт в Telegram. Сейчас данные только на этом устройстве.');
 }
 
@@ -1314,7 +1370,11 @@ if (navigator.storage && navigator.storage.persist) navigator.storage.persist().
 // уходим из приложения — сразу отправить несохранённое в облако;
 // вернулись (например, утром или после правок на компьютере) — сверить облако, обновить сроки и речку
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') { clearTimeout(pollTimer); pollTimer = null; if (cloudTimer) cloudSync(); return; }
+  if (document.visibilityState === 'hidden') {
+    clearTimeout(pollTimer); pollTimer = null;
+    if (cloudTimer) { clearTimeout(cloudTimer); cloudTimer = null; cloudSync('local'); }
+    return;
+  }
   schedulePoll();
   if (drag) return;
   cloudSync();
