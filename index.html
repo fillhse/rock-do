@@ -52,17 +52,17 @@ h1{font-size:21px;margin-bottom:4px}
 .count{margin-bottom:10px;cursor:pointer}
 .count b{color:var(--text)}
 /* Камень: подсказка с Рокки за упругим барьером из обычной прокрутки браузера (см. «подсказка над
-   «Моими делами»» в скрипте). #s-rock — общая прокрутка: метка «открыто», запас длиной --B, и экран дел;
+   «Моими делами»» в скрипте). #s-rock — общая прокрутка: метка «открыто», запас 140% высоты экрана и экран дел;
    дела листаются в своей прокрутке #rock-list. Точки привязки (#rock-top, #rock-main) не двигаются —
    двигается вложенный #rock-move: браузер считает точки привязки по сдвинутым рамкам. */
-#s-rock{padding:0;scroll-snap-type:y mandatory;scrollbar-width:none} /* полоса прокрутки — только у дел */
+#s-rock{padding:0;scroll-snap-type:y mandatory;container-type:size;scrollbar-width:none} /* полоса прокрутки — только у дел */
 #s-rock::-webkit-scrollbar{display:none}
 #rock-top{height:0;scroll-snap-align:start}
-#rock-gap{height:var(--B,0px)}
+#rock-gap{height:140%} /* путь через барьер; вся длина прокрутки #s-rock — ровно этот запас */
 #rock-main{height:100%;scroll-snap-align:start;scroll-snap-stop:always}
 #rock-move{position:relative;height:100%;will-change:transform}
 #rock-hero{position:absolute;left:var(--side);right:var(--side);bottom:calc(100% - var(--top))}
-#rock-hero .hero{transform-origin:50% 100%}
+#rock-hero .hero{transform-origin:50% 100%;height:142px;min-height:0} /* высота подсказки постоянная — 142 + 18 отступ */
 #rock-list{position:relative;height:100%;overflow-y:auto;padding:calc(18px + var(--top)) var(--side) calc(116px + var(--bot))}
 
 /* карточки, которые можно взять пальцем */
@@ -292,6 +292,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
     </div></div>
   </section>
   <style id="rock-anim"></style>
+  <script>document.getElementById('s-rock').scrollTop = 1e6; /* сразу «Мои дела»: до первой отрисовки, без прыжка */</script>
 
   <!-- Камушки: заметки -->
   <section class="screen" id="s-notes">
@@ -467,7 +468,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.7.1';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -593,7 +594,7 @@ function go(s) {
   const back = s === 'rock' && current !== 'rock';
   current = s;
   document.querySelectorAll('.screen').forEach((e) => e.classList.toggle('on', e.id === 's-' + s));
-  if (back) layoutRock(true); // вернулись на камень — снова с «Моих дел»
+  if (back) rockToList(); // вернулись на камень — снова с «Моих дел»
   document.querySelectorAll('.nav [data-s]').forEach((b) => b.classList.toggle('active', b.dataset.s === s));
   if (s === 'profile') renderStats();
   if (s === 'river') renderRiver(); // локация зависит от времени
@@ -1154,49 +1155,38 @@ function endDrag(cancelled) {
    браузер держит жест в той прокрутке, где он начался, поэтому разгон по делам останавливается на «Моих
    делах», а через барьер идёт только новый жест, начатый в самом верху. Нажатие на «Мои дела» —
    открыть или спрятать. Своих расчётов жеста нет — палец, трекпад, колесо и мышь работают одинаково. */
-const BARRIER = 1.4; // длина пути через барьер — доля высоты экрана
 const resist = (s) => { const x = (s - 0.5) / 0.22; return 1 + 7 * Math.exp(-x * x); };
 const RN = 200, rcum = [0]; // сколько подсказки видно на пути s — интеграл 1 / resist
 for (let i = 1; i <= RN; i++) rcum.push(rcum[i - 1] + 1 / resist((i - 0.5) / RN));
 const reveal = (s) => { const k = Math.min(1, Math.max(0, s)) * RN, i = Math.min(RN - 1, Math.floor(k)); return (rcum[i] + (rcum[i + 1] - rcum[i]) * (k - i)) / rcum[RN]; };
 const heroFade = (s) => Math.min(1, reveal(s) * 1.6); // к пику подсказка уже проявилась
-let barB = 0, barH = 0;
-// прокрутка t: 0 — подсказка открыта, B — «Мои дела» наверху. Без сдвига дела уехали бы вниз на B − t,
-// а надо — на reveal·H: разницу гасим сдвигом #rock-move
-const shiftAt = (t) => { const s = 1 - t / barB; return barH * reveal(s) - barB * s; };
-const nativeTimeline = CSS.supports('animation-timeline: scroll()');
-function layoutRock(toList) {
-  const sc = $('s-rock');
-  if (!sc.clientHeight) return; // экран скрыт — разметим, когда покажем
-  const atList = toList || !barB || sc.scrollTop > barB / 2;
-  barB = Math.round(sc.clientHeight * BARRIER);
-  barH = $('rock-hero').offsetHeight;
-  sc.style.setProperty('--B', barB + 'px');
-  if (nativeTimeline) { // сдвиг считает сам браузер, кадр в кадр с прокруткой
-    const at = (i) => barB * i / 120, pct = (i) => (i / 120 * 100).toFixed(2) + '%';
-    const move = Array.from({ length: 121 }, (_, i) => `${pct(i)}{transform:translateY(${shiftAt(at(i)).toFixed(2)}px)}`).join('');
-    const fade = Array.from({ length: 121 }, (_, i) => { const p = heroFade(1 - at(i) / barB); return `${pct(i)}{opacity:${p.toFixed(3)};transform:scale(${(0.92 + 0.08 * p).toFixed(3)})}`; }).join('');
-    $('rock-anim').textContent = `@keyframes rock-move{${move}} @keyframes rock-fade{${fade}}
-      #s-rock{scroll-timeline:--rock block}
-      #rock-move{animation:rock-move linear both;animation-timeline:--rock;animation-range:0px ${barB}px}
-      #rock-hero .hero{animation:rock-fade linear both;animation-timeline:--rock;animation-range:0px ${barB}px}`;
-  } else {
-    sc.onscroll = rockApply;
-  }
-  sc.scrollTop = atList ? barB : 0;
-  if (!nativeTimeline) rockApply();
+const HERO_H = 160; // подсказка 142 + отступ 18
+/* Сдвиг дел на прогрессе p прокрутки через запас (p = 0 — открыто, 1 — «Мои дела»; путь s = 1 − p):
+   без сдвига дела уехали бы вниз на B·s, а надо — на reveal(s)·H; B = 140% высоты экрана (140cqh).
+   Кадры считаются один раз: в них только доли, а размеры — в единицах CSS, поэтому при изменении окна
+   (Telegram разворачивается, поворот экрана) ничего не пересчитывается и экран не дёргается. */
+const nativeTimeline = CSS.supports('animation-timeline: scroll()') && CSS.supports('height: 1cqh');
+if (nativeTimeline) {
+  const pct = (i) => (i / 120 * 100).toFixed(2) + '%', sAt = (i) => 1 - i / 120;
+  const move = Array.from({ length: 121 }, (_, i) => `${pct(i)}{transform:translateY(calc(${(HERO_H * reveal(sAt(i))).toFixed(2)}px - ${(140 * sAt(i)).toFixed(3)}cqh))}`).join('');
+  const fade = Array.from({ length: 121 }, (_, i) => { const p = heroFade(sAt(i)); return `${pct(i)}{opacity:${p.toFixed(3)};transform:scale(${(0.92 + 0.08 * p).toFixed(3)})}`; }).join('');
+  $('rock-anim').textContent = `@keyframes rock-move{${move}} @keyframes rock-fade{${fade}}
+    #s-rock{scroll-timeline:--rock block}
+    #rock-move{animation:rock-move linear both;animation-timeline:--rock}
+    #rock-hero .hero{animation:rock-fade linear both;animation-timeline:--rock}`;
+} else { // запасной путь для браузеров без анимации от прокрутки
+  $('s-rock').addEventListener('scroll', () => {
+    const sc = $('s-rock'), B = sc.scrollHeight - sc.clientHeight, s = 1 - Math.min(sc.scrollTop, B) / B, p = heroFade(s);
+    $('rock-move').style.transform = s > 0 ? `translateY(${HERO_H * reveal(s) - B * s}px)` : '';
+    Object.assign($('rock-hero').firstElementChild.style, { opacity: p, transform: `scale(${0.92 + 0.08 * p})` });
+  }, { passive: true });
 }
-function rockApply() { // запасной путь для браузеров без анимации от прокрутки
-  const t = Math.min($('s-rock').scrollTop, barB), p = heroFade(1 - t / barB);
-  $('rock-move').style.transform = t < barB ? `translateY(${shiftAt(t)}px)` : '';
-  Object.assign($('rock-hero').firstElementChild.style, { opacity: p, transform: `scale(${0.92 + 0.08 * p})` });
-}
+const rockToList = () => { $('s-rock').scrollTop = 1e6; }; // «Мои дела» наверху (низ общей прокрутки)
 function toggleHero() {
   if (suppressClick) return;
-  const sc = $('s-rock');
-  sc.scrollTo({ top: sc.scrollTop < barB / 2 ? barB : 0, behavior: 'smooth' });
+  const sc = $('s-rock'), B = sc.scrollHeight - sc.clientHeight;
+  sc.scrollTo({ top: sc.scrollTop < B / 2 ? B : 0, behavior: 'smooth' });
 }
-new ResizeObserver(() => layoutRock()).observe($('s-rock'));
 
 /* ===================== облако Telegram ===================== */
 /* Копия данных в CloudStorage Telegram: она привязана к аккаунту и боту, а не к телефону — переживёт
@@ -1542,7 +1532,6 @@ function haptic(kind) {
 /* ===================== старт ===================== */
 function renderAll() { renderTasks(); renderDone(); renderNotes(); renderStats(); }
 renderAll();
-layoutRock(true);
 renderRiver();
 const tz = -new Date().getTimezoneOffset() / 60;
 $('tz-val').textContent = `(UTC${tz >= 0 ? '+' : ''}${tz})`;

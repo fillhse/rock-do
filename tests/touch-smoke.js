@@ -119,20 +119,20 @@
   // подсказка с Рокки: за барьером из прокрутки — камень начинается с «Моих дел», подсказки не видно
   const heroVisible = () => document.getElementById('rock-hero').getBoundingClientRect().bottom > outer.getBoundingClientRect().top + 30;
   go('notes'); go('rock'); await sleep(100);
-  check('камень начинается с «Моих дел», подсказка не видна', Math.abs(outer.scrollTop - barB) < 2 && !heroVisible());
+  check('камень начинается с «Моих дел», подсказка не видна', Math.abs(outer.scrollTop - (outer.scrollHeight - outer.clientHeight)) < 2 && !heroVisible());
   // перенос дела вверх к краю: листается список дел, а не барьер — подсказка не выезжает
   sc.scrollTop = 300; await sleep(50);
   const upB = cards()[4].querySelector('b'), pu = at(upB, 20);
   await hold(upB, pu, [pu[0], outer.getBoundingClientRect().top + 20], 1200);
-  check('перенос дела к верхнему краю — листаются дела, подсказка не выезжает', sc.scrollTop < 300 && Math.abs(outer.scrollTop - barB) < 2 && !heroVisible());
+  check('перенос дела к верхнему краю — листаются дела, подсказка не выезжает', sc.scrollTop < 300 && Math.abs(outer.scrollTop - (outer.scrollHeight - outer.clientHeight)) < 2 && !heroVisible());
   // нажатие на «Мои дела» — открыть и спрятать
   sc.scrollTop = 0; document.querySelector('#rock-list .count').click(); await sleep(1200);
   const openedByClick = outer.scrollTop < 2 && heroVisible();
   document.querySelector('#rock-list .count').click(); await sleep(1200);
-  check('нажатие на «Мои дела» открывает подсказку, повторное — прячет', openedByClick && Math.abs(outer.scrollTop - barB) < 2 && !heroVisible());
+  check('нажатие на «Мои дела» открывает подсказку, повторное — прячет', openedByClick && Math.abs(outer.scrollTop - (outer.scrollHeight - outer.clientHeight)) < 2 && !heroVisible());
   // ушли с камня с открытой подсказкой и вернулись — снова с «Моих дел»
   outer.scrollTop = 0; await sleep(300); go('notes'); go('rock'); await sleep(100);
-  check('ушли с камня и вернулись — снова с «Моих дел»', Math.abs(outer.scrollTop - barB) < 2);
+  check('ушли с камня и вернулись — снова с «Моих дел»', Math.abs(outer.scrollTop - (outer.scrollHeight - outer.clientHeight)) < 2);
   // облако прислало правку, пока палец держит карточку (ждём удержания) — список не перерисовывается под пальцем
   { const card0 = cards()[0], el = card0.querySelector('b'), [x, y] = at(el, 20);
     el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: x, clientY: y, button: 0 }));
