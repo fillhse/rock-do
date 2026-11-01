@@ -97,7 +97,9 @@ h1{font-size:21px;margin-bottom:4px}
   padding:13px 14px;margin-bottom:10px}
 
 /* задачи */
-.task,.note-card{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.task,.note-card{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
+/* пока карточка «поднята», страница не выделяет текст и не показывает системное меню */
+html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .drag-src{opacity:.25}
 
 /* корзина при переносе (по центру, на месте плюса) */
@@ -202,7 +204,8 @@ textarea.input{min-height:110px;resize:vertical;font-family:inherit}
 .nt{display:none;flex-direction:column}
 .nt.on{display:flex}
 /* компактное поле, как в исходном макете; растёт только под длинный текст */
-textarea.input.nt-title{min-height:0;height:auto;font-size:15px;line-height:1.45;
+/* min-height = строка + отступы + рамка: поле не схлопнется, даже если высоту посчитали до показа окна */
+textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15px;line-height:1.45;
   resize:none;overflow:hidden;margin-top:14px;padding-top:16px;padding-bottom:16px}
 .nt .rockhint{margin:30px 0 16px} /* камень с подсказкой — с воздухом под кнопками, как в макете */
 /* блоки формы дела — той же высоты, что в «Напоминании» */
@@ -423,8 +426,9 @@ textarea.input.nt-title{min-height:0;height:auto;font-size:15px;line-height:1.45
   <div class="overlay nt" id="o-task">
     <div class="top"><h1 id="te-title">Новое дело</h1><button class="close" onclick="closeOverlay('o-task')">✕</button></div>
     <textarea class="input nt-title" id="t-title" maxlength="120" rows="1" placeholder="Что нужно сделать?"
+              enterkeyhint="done"
               oninput="saveBtn.disabled=!this.value.trim();autoGrow(this)"
-              onkeydown="if(event.key==='Enter')event.preventDefault()"></textarea>
+              onkeydown="if(event.key==='Enter'){event.preventDefault();if(this.value.trim())saveTask()}"></textarea>
     <div class="row" onclick="openPicker()"><span>Когда сделать?</span><span class="val"><span id="t-due-label">Без срока</span> <span class="chev">›</span></span></div>
     <button class="btn" id="saveBtn" disabled onclick="saveTask()">Положить</button>
     <button class="btn dark" onclick="closeOverlay('o-task')">Отмена</button>
@@ -458,7 +462,8 @@ textarea.input.nt-title{min-height:0;height:auto;font-size:15px;line-height:1.45
         <button class="ne-ic ok" onclick="saveNote()" title="Сохранить">✓</button>
       </div>
     </div>
-    <input class="ne-title" id="n-title" placeholder="Заголовок" oninput="histPush()">
+    <input class="ne-title" id="n-title" placeholder="Заголовок" oninput="histPush()" enterkeyhint="next"
+           onkeydown="if(event.key==='Enter'){event.preventDefault();nBody().focus()}">
     <div class="ne-meta"><span id="ne-date"></span><span class="ne-sep">|</span><span id="ne-count">0 символов</span></div>
     <textarea class="ne-body" id="n-body" placeholder="Начните ввод" oninput="neCount();histPush()"></textarea>
   </div>
@@ -753,24 +758,7 @@ function restoreDone(id) {
 
 /* жесты сделанной карточки: удержание (в корзину) / тап (меню) */
 function doneTouch(e, id) {
-  if (e.button > 0) return;
-  const wrap = e.currentTarget;
-  const sx = e.clientX, sy = e.clientY;
-  const timer = setTimeout(() => { cleanup(); startDrag(wrap, id, 'done', sx, sy); }, 300);
-  const move = (ev) => { if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 10) cleanup(); }; // скролл
-  const up = (ev) => {
-    cleanup();
-    if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 8 && !suppressClick) openDoneSheet(id);
-  };
-  function cleanup() {
-    clearTimeout(timer);
-    document.removeEventListener('pointermove', move);
-    document.removeEventListener('pointerup', up);
-    document.removeEventListener('pointercancel', cleanup);
-  }
-  document.addEventListener('pointermove', move);
-  document.addEventListener('pointerup', up);
-  document.addEventListener('pointercancel', cleanup);
+  holdGesture(e, e.currentTarget, id, 'done', () => { if (!suppressClick) openDoneSheet(id); });
 }
 
 /* bottom sheet по тапу */
@@ -826,7 +814,8 @@ function completeTask(id) {
 }
 
 /* редактор дела */
-function autoGrow(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
+// scrollHeight без рамки, а box-sizing — border-box: добавляем рамку, иначе текст подрезается
+function autoGrow(el) { el.style.height = 'auto'; el.style.height = (el.scrollHeight + el.offsetHeight - el.clientHeight) + 'px'; }
 let editId = null, pickDue = null, pickRep = 'never';
 function openTaskEditor(id) {
   editId = id || null;
@@ -1114,7 +1103,7 @@ function renderStats() {
   document.getElementById('st-total').textContent = db.done.length;
 }
 // «О приложении»: версия сборки (= VERSION в sw.js) и диагностика Telegram
-const BUILD = 'v5';
+const BUILD = 'v6';
 function aboutToast() {
   const tg = window.Telegram && Telegram.WebApp;
   let s = 'rock do · версия 1.1.0 (' + BUILD + ')';
@@ -1153,20 +1142,46 @@ function snackUndo() {
 }
 
 function pressStart(e, id, type) {
-  if (e.button > 0 || e.target.closest('.hit')) return; // чекбокс не тянем
-  const card = e.currentTarget;
+  if (e.target.closest('.hit')) return; // чекбокс не тянем
+  holdGesture(e, e.currentTarget, id, type);
+}
+
+/* удержание карточки: тап → onTap (или обычный click), удержание HOLD_MS → перетаскивание.
+   Палец ведём через touch-события: pointer-события браузер отбирает (pointercancel), как только
+   решит, что это прокрутка, а preventDefault у touchmove после «подъёма» карточки надёжно её запрещает.
+   Слушаем сам элемент под пальцем: при перестановке список перерисовывается, элемент выпадает
+   из документа, и до document события касания больше не всплывают — а ему самому приходят всегда. */
+const HOLD_MS = 280, SLOP = 8;
+function holdGesture(e, card, id, type, onTap) {
+  if (e.button > 0) return;
+  if (drag) endDrag(true); // осиротевший перенос (например, второй палец) — вернуть карточку на место
+  const touch = e.pointerType !== 'mouse';
+  const host = touch ? e.target : document;
+  const [MOVE, UP, CANCEL] = touch ? ['touchmove', 'touchend', 'touchcancel'] : ['pointermove', 'pointerup', 'pointercancel'];
+  const pt = (ev) => (ev.changedTouches ? ev.changedTouches[0] : ev);
   const sx = e.clientX, sy = e.clientY;
-  const timer = setTimeout(() => { stop(); startDrag(card, id, type, sx, sy); }, 300); // как у сделанных
-  const move = (ev) => { if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 10) stop(); }; // это скролл
-  function stop() {
+  let lifted = false;
+  const timer = setTimeout(() => { lifted = true; startDrag(card, id, type, sx, sy); }, HOLD_MS);
+  const move = (ev) => {
+    const p = pt(ev);
+    if (lifted) { if (ev.cancelable) ev.preventDefault(); dragMove(p.clientX, p.clientY); }
+    else if (Math.hypot(p.clientX - sx, p.clientY - sy) > SLOP) finish(); // это прокрутка
+  };
+  const up = (ev) => {
+    const p = pt(ev), wasLifted = lifted;
+    finish();
+    if (wasLifted) endDrag(ev.type === CANCEL);
+    else if (ev.type === UP && onTap && Math.hypot(p.clientX - sx, p.clientY - sy) < SLOP) onTap();
+  };
+  function finish() {
     clearTimeout(timer);
-    document.removeEventListener('pointermove', move);
-    document.removeEventListener('pointerup', stop);
-    document.removeEventListener('pointercancel', stop);
+    host.removeEventListener(MOVE, move);
+    host.removeEventListener(UP, up);
+    host.removeEventListener(CANCEL, up);
   }
-  document.addEventListener('pointermove', move);
-  document.addEventListener('pointerup', stop);
-  document.addEventListener('pointercancel', stop);
+  host.addEventListener(MOVE, move, { passive: false });
+  host.addEventListener(UP, up);
+  host.addEventListener(CANCEL, up);
 }
 
 function startDrag(card, id, type, px, py) {
@@ -1183,66 +1198,81 @@ function startDrag(card, id, type, px, py) {
   document.body.appendChild(ghost);
   card.classList.add('drag-src');
   document.getElementById('trash').classList.add('show'); // показать корзину
-  drag = { id, type, ghost, dx: px - r.left, dy: py - r.top, w: r.width, h: r.height, lastSig: '' };
+  drag = { id, type, ghost, dx: px - r.left, dy: py - r.top, w: r.width, h: r.height, px, py };
+  document.documentElement.classList.add('dragging');
+  requestAnimationFrame(autoScroll);
+}
 
-  const onMove = (ev) => {
-    ghost.style.left = (ev.clientX - drag.dx) + 'px';
-    ghost.style.top = (ev.clientY - drag.dy) + 'px';
-    // попадание считаем по ЦЕНТРУ карточки, а не по пальцу — не зависит от места хвата
-    const cx = ev.clientX - drag.dx + drag.w / 2;
-    const cy = ev.clientY - drag.dy + drag.h / 2;
-    const trash = document.getElementById('trash');
-    const tr = document.getElementById('trashBtn').getBoundingClientRect();
-    const pad = 12;
-    const hot = cx >= tr.left - pad && cx <= tr.right + pad &&
-                cy >= tr.top - pad && cy <= tr.bottom + pad;
-    trash.classList.toggle('hot', hot);
-    if (!hot) previewReorder(cx, cy);
-  };
-  const block = (ev) => ev.preventDefault(); // не скроллим во время переноса
-  const onUp = (ev) => {
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onUp);
-    document.removeEventListener('pointercancel', onUp);
-    document.removeEventListener('touchmove', block);
-    // жест отменён браузером — в корзину не бросаем, карточка возвращается на место
-    if (ev.type === 'pointercancel') document.getElementById('trash').classList.remove('hot');
-    endDrag();
-  };
-  document.addEventListener('pointermove', onMove);
-  document.addEventListener('pointerup', onUp);
-  document.addEventListener('pointercancel', onUp);
-  document.addEventListener('touchmove', block, { passive: false });
+function dragMove(x, y) {
+  if (!drag) return;
+  drag.px = x; drag.py = y;
+  drag.ghost.style.left = (x - drag.dx) + 'px';
+  drag.ghost.style.top = (y - drag.dy) + 'px';
+  // попадание считаем по ЦЕНТРУ карточки — не зависит от места хвата; в корзину — ещё и по пальцу
+  const cx = x - drag.dx + drag.w / 2, cy = y - drag.dy + drag.h / 2;
+  const trash = document.getElementById('trash');
+  const tr = document.getElementById('trashBtn').getBoundingClientRect();
+  const near = (px, py, pad) => px >= tr.left - pad && px <= tr.right + pad && py >= tr.top - pad && py <= tr.bottom + pad;
+  const hot = near(cx, cy, 12) || near(x, y, 18);
+  if (hot && !trash.classList.contains('hot')) haptic('drag');
+  trash.classList.toggle('hot', hot);
+  if (!hot) previewReorder(cx, cy);
+}
+
+/* у верхнего/нижнего края списка он сам прокручивается — можно перенести дело в любое место */
+function autoScroll() {
+  if (!drag) return;
+  const sc = document.querySelector('.screen.on');
+  if (sc && drag.type !== 'done') {
+    const r = sc.getBoundingClientRect();
+    const top = r.top + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top')) || 0) + 70;
+    // нижняя зона — над корзиной и не заходит в её «горячую» область, иначе дело улетит в корзину
+    const hotTop = document.getElementById('trashBtn').getBoundingClientRect().top - 12;
+    const bottom = hotTop - 70;
+    const y = drag.py - drag.dy + drag.h / 2; // центр карточки — как и при попадании в корзину
+    const v = y < top ? -Math.min(14, (top - y) / 4) : y > bottom && y < hotTop ? Math.min(14, (y - bottom) / 4) : 0;
+    if (v) {
+      const before = sc.scrollTop;
+      sc.scrollTop += v;
+      if (sc.scrollTop !== before) dragMove(drag.px, drag.py);
+    }
+  }
+  requestAnimationFrame(autoScroll);
 }
 
 const dragArr = () => drag.type === 'task' ? db.tasks : db.notes;
 const dragEl = (id) => document.getElementById(
   (drag.type === 'task' ? 'task-' : drag.type === 'note' ? 'note-' : 'done-') + id);
+// положение карточки без учёта идущей FLIP-анимации (transform), иначе порядок «дрожит»
+function layoutRect(el) {
+  const sc = el.offsetParent, r = sc.getBoundingClientRect();
+  const left = r.left + el.offsetLeft - sc.scrollLeft, top = r.top + el.offsetTop - sc.scrollTop;
+  return { left, top, right: left + el.offsetWidth, bottom: top + el.offsetHeight, height: el.offsetHeight };
+}
 
 function previewReorder(x, y) {
   if (drag.type === 'done') return; // сделанные не переставляются — только в корзину
-  if (drag.cool && Date.now() - drag.cool < 220) return; // пауза между перестановками
   const sorted = [...dragArr()].sort((a, b) => a.pos - b.pos);
-  const others = sorted.filter((it) => it.id !== drag.id);
-  // перестановка только когда палец реально НАД другой карточкой
-  let hit = null, before = true;
-  for (const it of others) {
-    const el = dragEl(it.id); if (!el) continue;
-    const c = el.getBoundingClientRect();
-    if (x >= c.left && x <= c.right && y >= c.top && y <= c.bottom) {
-      hit = it; before = y < c.top + c.height / 2; break;
-    }
+  const me = sorted.find((it) => it.id === drag.id);
+  let order;
+  if (drag.type === 'task') {
+    // дела — один столбец: вставляем перед первой карточкой, чья середина ниже центра переносимой
+    const rest = sorted.filter((it) => it !== me);
+    const before = rest.find((it) => { const el = dragEl(it.id); if (!el) return false;
+      const c = layoutRect(el); return y < c.top + c.height / 2; });
+    order = [...rest];
+    order.splice(before ? order.indexOf(before) : order.length, 0, me);
+  } else {
+    // камушки — плитка в 2 колонки: меняемся местами с карточкой под пальцем
+    const hit = sorted.find((it) => { if (it === me) return false; const el = dragEl(it.id); if (!el) return false;
+      const c = layoutRect(el); return x >= c.left && x <= c.right && y >= c.top && y <= c.bottom; });
+    if (!hit || (drag.cool && Date.now() - drag.cool < 250)) return; // пауза, чтобы пары не мигали
+    order = [...sorted];
+    const i = order.indexOf(me), j = order.indexOf(hit);
+    [order[i], order[j]] = [order[j], order[i]];
+    drag.cool = Date.now();
   }
-  if (!hit) return;
-  // обмен местами — симметричен и предсказуем для карточек любого размера
-  const order = [...sorted];
-  const i = order.findIndex((it) => it.id === drag.id);
-  const j = order.findIndex((it) => it.id === hit.id);
-  [order[i], order[j]] = [order[j], order[i]];
-  const sig = order.map((it) => it.id).join(',');
-  if (sig === sorted.map((it) => it.id).join(',') || sig === drag.lastSig) return;
-  drag.lastSig = sig;
-  drag.cool = Date.now();
+  if (order.every((it, i) => it === sorted[i])) return;
   order.forEach((it, i) => it.pos = i);
   rerenderFlip();
 }
@@ -1266,9 +1296,10 @@ function rerenderFlip() {
   });
 }
 
-function endDrag() {
+function endDrag(cancelled) {
   const trash = document.getElementById('trash');
-  const hot = trash.classList.contains('hot');
+  // жест отменён системой — в корзину не бросаем, карточка возвращается на место
+  const hot = !cancelled && trash.classList.contains('hot');
   const { id, type, ghost } = drag;
   const src = dragEl(id);
 
@@ -1310,6 +1341,7 @@ function endDrag() {
   }
 
   trash.classList.remove('show', 'hot');
+  document.documentElement.classList.remove('dragging');
   drag = null;
   // после удержания клик всегда гасим — иначе случайно открывается редактор
   suppressClick = true;
