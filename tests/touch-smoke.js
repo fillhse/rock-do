@@ -74,8 +74,8 @@
   await tap(at(regCard(reg0).querySelector('.checkbox'))); await sleep(500);
   check('регулярное: отметил — исчезает из «Регулярных» до конца дня, запись в «Сделанных»',
     !regTitles().includes(reg0) && !titles().includes(reg0) && db.done.length === doneBefore + 1 && !!doneWrap(reg0));
-  check('регулярные все сделаны — раздел остаётся: «Регулярные 0» и «На сегодня всё сделано»',
-    head('#reg-list').replace(/\s+/g, ' ').trim() === 'Регулярные 0' && /всё сделано/.test(document.querySelector('#reg-list .sec-note').textContent));
+  check('регулярные все сделаны — раздел остаётся со счётчиком «Регулярные 0», без лишних надписей',
+    head('#reg-list').replace(/\s+/g, ' ').trim() === 'Регулярные 0' && document.querySelector('#reg-list').textContent.replace(/\s+/g, ' ').trim() === 'Регулярные 0');
   await tap(at(doneWrap(reg0).querySelector('.checkbox')));
   check('регулярное: отмена выполнения возвращает его в «Регулярные»', regTitles().includes(reg0) && !doneWrap(reg0));
   await tap(at(regCard(reg0).querySelector('.checkbox'))); await sleep(500);

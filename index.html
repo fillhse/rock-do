@@ -71,7 +71,6 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 /* сделанные */
 .sec-h{color:var(--muted);font-size:12px;margin:20px 0 10px}
 .sec-h b{color:var(--text)}
-.sec-note{color:var(--muted);font-size:12px;padding:2px 2px 4px} /* строка-пояснение под заголовком пустого раздела */
 .done-wrap{margin-bottom:10px}
 .done-card{display:flex;align-items:center;gap:12px;opacity:.62;margin-bottom:0}
 .done-card .dt{flex:1;min-width:0}
@@ -444,7 +443,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.3.2';
+const APP_VERSION = '1.3.3';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -605,11 +604,9 @@ function renderTasks() {
   renderTaskList($('task-list'), mine);
   if (!all.length) $('task-list').innerHTML = '<div class="empty"><img src="img/rock-sleep.webp" alt=""><div>Пока камень свободен.<br>Положи на него первое дело.</div></div>';
   const reg = $('reg-list'); // порядок в обоих разделах ручной — перетаскиванием
-  // раздел виден всегда: счётчик — сколько осталось на сегодня (ждущие своего дня не в счёт),
-  // при нуле — пояснение: всё сделано или дел с повтором пока нет
+  // раздел виден всегда; счётчик — сколько осталось на сегодня (ждущие своего дня не в счёт)
   const left = regular.filter((t) => !isWaiting(t)).length;
-  const note = left ? '' : `<div class="sec-note">${all.some(isRepeating) ? 'На сегодня всё сделано ✓' : 'Здесь будут дела с повтором'}</div>`;
-  reg.innerHTML = `<div class="sec-h">Регулярные <b>${left}</b></div>${note}<div></div>`;
+  reg.innerHTML = `<div class="sec-h">Регулярные <b>${left}</b></div><div></div>`;
   renderTaskList(reg.lastElementChild, regular);
 }
 
