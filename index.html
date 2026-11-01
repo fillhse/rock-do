@@ -455,7 +455,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.5.7';
+const APP_VERSION = '1.5.8';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -637,9 +637,13 @@ function pullStart(e) {
 function pullMove(e) {
   if (!pull || drag) return; // поднятую карточку не трогаем
   const d = e.touches[0].clientY - pull.y;
-  if (d <= 0 && !pull.on) { pull = null; return; } // повели вверх — это обычная прокрутка
+  if (!pull.on) {
+    // Пока направление не ясно (дрожь пальца), касание не трогаем: отменённое первое движение запрещает
+    // браузеру прокрутку на весь жест — список «не листался», если палец, коснувшись, дрогнул вниз.
+    if (Math.abs(d) < SLOP) return;
+    if (d < 0) { pull = null; return; } // повели вверх — это обычная прокрутка
+  }
   if (e.cancelable) e.preventDefault(); // вверх прокручивать некуда — тянем подсказку
-  if (d < SLOP && !pull.on) return; // дрожь пальца на тапе
   const w = heroWrap(), full = heroFull();
   if (!pull.on) { // подхватили на лету (ещё закрывается) — продолжаем с той же высоты, без скачка
     pull.on = true;
@@ -661,15 +665,16 @@ function pullEnd() {
 }
 /* Трекпад и колесо (Mac): в самом верху — отдельная долгая прокрутка вверх. Докрутили до «Моих дел»
    снизу — трекпад ещё долго шлёт события по инерции; они подсказку не открывают. Считаем только жест,
-   начатый уже в самом верху, после паузы (инерция идёт сплошным потоком, без пауз). */
-const WHEEL_OPEN = 900, WHEEL_PAUSE = 350;
-let wheelPull = 0, wheelArmed = false, wheelLast = 0;
+   начатый, когда список уже постоял в самом верху (TOP_REST) и после паузы между событиями (инерция
+   идёт сплошным потоком). */
+const WHEEL_OPEN = 900, WHEEL_PAUSE = 350, TOP_REST = 700;
+let wheelPull = 0, wheelArmed = false, wheelLast = 0, scrolledAt = 0;
 function pullWheel(e) {
   const now = performance.now(), gap = now - wheelLast;
   wheelLast = now;
   if (heroWrap().classList.contains('open') || $('s-rock').scrollTop > 0 || e.deltaY >= 0) { wheelPull = 0; wheelArmed = false; return; }
-  if (gap > WHEEL_PAUSE) { wheelArmed = true; wheelPull = 0; } // новый жест, начатый в самом верху
-  if (!wheelArmed) return; // докатились сюда по инерции
+  if (gap > WHEEL_PAUSE && now - scrolledAt > TOP_REST) { wheelArmed = true; wheelPull = 0; } // новый жест в самом верху
+  if (!wheelArmed) return; // докатились сюда прокруткой или по инерции
   wheelPull -= e.deltaY;
   if (wheelPull > WHEEL_OPEN) { wheelPull = 0; wheelArmed = false; setHero(true, true); }
 }
@@ -1554,6 +1559,7 @@ $('s-rock').addEventListener('touchmove', pullMove, { passive: false });
 $('s-rock').addEventListener('touchend', pullEnd);
 $('s-rock').addEventListener('touchcancel', pullEnd);
 $('s-rock').addEventListener('wheel', pullWheel, { passive: true });
+$('s-rock').addEventListener('scroll', () => { scrolledAt = performance.now(); }, { passive: true });
 function renderAll() { renderTasks(); renderDone(); renderNotes(); renderStats(); }
 renderAll();
 renderRiver();

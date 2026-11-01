@@ -136,10 +136,21 @@
   check('тугое потягивание вниз (380 px) — подсказка открылась', heroH() > 100 && !drag);
   go('notes'); go('rock'); await sleep(50);
   check('ушли с камня и вернулись — подсказка снова спрятана', heroH() === 0);
+  // палец коснулся в самом верху и дрогнул вниз, потом повёл вверх — браузеру прокрутку не запрещаем
+  sc.scrollTop = 0; await sleep(30);
+  { const el = cards()[0].querySelector('b'), [x, y] = at(el, 20);
+    el.dispatchEvent(touchEv('touchstart', el, x, y));
+    const free1 = el.dispatchEvent(touchEv('touchmove', el, x, y + 3)), free2 = el.dispatchEvent(touchEv('touchmove', el, x, y - 30));
+    el.dispatchEvent(touchEv('touchend', el, x, y - 30)); await sleep(300);
+    check('в самом верху палец дрогнул вниз, потом повёл вверх — прокрутка не запрещена', free1 && free2 && heroH() === 0); }
   // Mac: докрутили снизу до «Моих дел» — инерция трекпада подсказку не открывает; новый жест в самом верху — открывает
   const wheel = (dy) => sc.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: dy }));
   sc.scrollTop = 600; await sleep(400);
   for (let i = 0; i < 80; i++) { wheel(-40); sc.scrollTop = Math.max(0, sc.scrollTop - 40); await sleep(16); } // докатились и катимся дальше
+  sc.scrollTop = 300; await sleep(50);
+  for (let i = 0; i < 8; i++) { wheel(-40); sc.scrollTop = Math.max(0, sc.scrollTop - 40); await sleep(16); } // докатились до верха
+  await sleep(400);
+  for (let i = 0; i < 16; i++) { wheel(-80); await sleep(16); } // инерция вернулась после паузы — сразу после того, как докатились
   await sleep(300);
   check('Mac: докрутили снизу до верха по инерции — подсказка не открылась', heroH() === 0 && sc.scrollTop === 0);
   await sleep(400);
