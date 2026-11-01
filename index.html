@@ -49,8 +49,17 @@ h1{font-size:21px;margin-bottom:4px}
 .hero .hint{color:var(--accent2);font-size:12px;line-height:1.4;margin-top:8px}
 .count{margin-bottom:10px}
 /* подсказка с Рокки спрятана над «Моими делами»; открывается тугим потягиванием вниз */
-.hero-wrap{height:0;overflow:hidden}
-.hero-wrap.settle{transition:height .25s ease}
+.hero-wrap{height:0;overflow:hidden;--p:0;display:flex;flex-direction:column;justify-content:flex-end} /* выезжает сверху, как из-под края */
+.hero-wrap.open{--p:1}
+.hero-wrap .hero{flex:none;opacity:var(--p);transform:scale(calc(.88 + .12 * var(--p)));transform-origin:50% 100%}
+.hero-wrap .hero img{transform:rotate(calc((1 - var(--p)) * -18deg)) scale(calc(.6 + .4 * var(--p)))}
+.hero-wrap.ready .hero img{transform:scale(1.08);transition:transform .18s cubic-bezier(.34,1.8,.64,1)}
+.hero-wrap.settle{transition:height .5s cubic-bezier(.34,1.45,.64,1)}
+.hero-wrap.settle .hero,.hero-wrap.settle .hero img{transition:opacity .3s ease,transform .5s cubic-bezier(.34,1.45,.64,1)}
+.hero-wrap.closing{transition:height .25s ease}
+.hero-wrap.closing .hero,.hero-wrap.closing .hero img{transition:opacity .2s ease,transform .25s ease}
+.hero-wrap.hop .hero img{animation:rocky-hop .6s .15s cubic-bezier(.3,1.6,.5,1)}
+@keyframes rocky-hop{0%{transform:none}35%{transform:translateY(-12px) rotate(-6deg) scale(1.06)}70%{transform:translateY(2px) rotate(2deg) scale(.98)}100%{transform:none}}
 .count b{color:var(--text)}
 
 /* карточки, которые можно взять пальцем */
@@ -449,7 +458,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.5.3';
+const APP_VERSION = '1.5.4';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -587,8 +596,11 @@ const heroWrap = () => $('hero-wrap');
 const heroFull = () => { const h = heroWrap().firstElementChild; return h.offsetHeight + parseFloat(getComputedStyle(h).marginBottom); };
 function setHero(open, animate) {
   const w = heroWrap();
-  w.classList.toggle('settle', !!animate);
+  w.classList.remove('ready', 'hop', 'settle', 'closing');
+  if (animate) { void w.offsetWidth; w.classList.add(open ? 'settle' : 'closing'); }
+  if (animate && open) w.classList.add('hop'); // Рокки подпрыгивает, открывшись
   w.classList.toggle('open', open);
+  w.style.removeProperty('--p');
   w.style.height = open ? heroFull() + 'px' : '';
 }
 let pull = null;
@@ -602,11 +614,14 @@ function pullMove(e) {
   if (e.cancelable) e.preventDefault(); // вверх прокручивать некуда — тянем подсказку
   if (d < SLOP && !pull.on) return; // дрожь пальца на тапе
   pull.on = true;
-  const w = heroWrap();
-  w.classList.remove('settle');
-  w.style.height = Math.min(heroFull(), Math.max(0, d - SLOP) * 0.4) + 'px';
+  const w = heroWrap(), x = Math.max(0, d - SLOP);
+  w.classList.remove('settle', 'closing', 'hop');
+  // чем дальше тянем, тем туже: высота подходит к половине подсказки и почти не растёт
+  w.style.height = heroFull() * 0.5 * (1 - Math.exp(-x / 150)) + 'px';
+  w.style.setProperty('--p', Math.min(1, x / (PULL_OPEN - SLOP)).toFixed(3)); // Рокки проявляется и разворачивается
   const ready = d >= PULL_OPEN;
   if (ready && !pull.ready) haptic('drag');
+  w.classList.toggle('ready', ready); // дотянули — Рокки «просыпается»
   pull.ready = ready;
 }
 function pullEnd() {
