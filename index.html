@@ -51,19 +51,15 @@ h1{font-size:21px;margin-bottom:4px}
 .hero .hint{color:var(--accent2);font-size:12px;line-height:1.4;margin-top:8px}
 .count{margin-bottom:10px;cursor:pointer}
 .count b{color:var(--text)}
-/* Камень: подсказка с Рокки за упругим барьером из обычной прокрутки браузера (см. «подсказка над
-   «Моими делами»» в скрипте). #s-rock — общая прокрутка: метка «открыто», запас 140% высоты экрана и экран дел;
-   дела листаются в своей прокрутке #rock-list. Точки привязки (#rock-top, #rock-main) не двигаются —
-   двигается вложенный #rock-move: браузер считает точки привязки по сдвинутым рамкам. */
-#s-rock{padding:0;scroll-snap-type:y mandatory;container-type:size;scrollbar-width:none} /* полоса прокрутки — только у дел */
-#s-rock::-webkit-scrollbar{display:none}
-#rock-top{height:0;scroll-snap-align:start}
-#rock-gap{height:140%} /* путь через барьер; вся длина прокрутки #s-rock — ровно этот запас */
-#rock-main{height:100%;scroll-snap-align:start;scroll-snap-stop:always}
-#rock-move{position:relative;height:100%;will-change:transform}
-#rock-hero{position:absolute;left:var(--side);right:var(--side);bottom:calc(100% - var(--top))}
-#rock-hero .hero{transform-origin:50% 100%;height:142px;min-height:0} /* высота подсказки постоянная — 142 + 18 отступ */
-#rock-list{position:relative;height:100%;overflow-y:auto;padding:calc(18px + var(--top)) var(--side) calc(116px + var(--bot))}
+/* подсказка с Рокки спрятана над «Моими делами»; открывается тугим потягиванием вниз */
+.hero-wrap{height:0;overflow:hidden;--p:0;display:flex;flex-direction:column;justify-content:flex-end} /* выезжает сверху, как из-под края */
+.hero-wrap.open{--p:1}
+/* всё привязано к геометрии: по мере раскрытия подсказка проявляется из лёгкого размытия и подрастает,
+   Рокки разворачивается; открылась — он мягко подпрыгивает */
+.hero-wrap .hero{flex:none;opacity:var(--p);transform:scale(calc(.91 + .09 * var(--p)));filter:blur(calc((1 - var(--p)) * 3px));transform-origin:50% 100%}
+.hero-wrap .hero img{transform:rotate(calc((1 - var(--p)) * -9deg)) scale(calc(.8 + .2 * var(--p)))}
+.hero-wrap.hop .hero img{animation:rocky-hop .55s cubic-bezier(.3,1.4,.5,1)}
+@keyframes rocky-hop{0%{transform:none}40%{transform:translateY(-7px) rotate(-3deg) scale(1.03)}75%{transform:translateY(1px) rotate(1deg)}100%{transform:none}}
 
 /* карточки, которые можно взять пальцем */
 .task,.note-card,.done-wrap{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
@@ -274,25 +270,18 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 
   <!-- Камень: дела -->
   <section class="screen on" id="s-rock">
-    <div id="rock-top"></div><div id="rock-gap"></div>
-    <div id="rock-main"><div id="rock-move">
-      <div id="rock-hero"><div class="hero">
-        <img src="img/rock-neutral.webp" alt="Рокки" width="360" height="322" fetchpriority="high">
-        <div>
-          <div class="phrase">Маленький шаг сегодня — большая гора завтра.</div>
-          <div class="hint">Новые советы + Напоминания в Telegram</div>
-        </div>
-      </div></div>
-      <div id="rock-list">
-        <div class="sub count" onclick="toggleHero()">Мои дела <b id="task-count">0</b></div>
-        <div id="task-list"></div>
-        <div id="reg-list"></div>
-        <div id="done-list"></div>
+    <div class="hero-wrap" id="hero-wrap"><div class="hero">
+      <img src="img/rock-neutral.webp" alt="Рокки" width="360" height="322" fetchpriority="high">
+      <div>
+        <div class="phrase">Маленький шаг сегодня — большая гора завтра.</div>
+        <div class="hint">Новые советы + Напоминания в Telegram</div>
       </div>
     </div></div>
+    <div class="sub count" onclick="if(!suppressClick)toggleHero()">Мои дела <b id="task-count">0</b></div>
+    <div id="task-list"></div>
+    <div id="reg-list"></div>
+    <div id="done-list"></div>
   </section>
-  <style id="rock-anim"></style>
-  <script>document.getElementById('s-rock').scrollTop = 1e6; /* сразу «Мои дела»: до первой отрисовки, без прыжка */</script>
 
   <!-- Камушки: заметки -->
   <section class="screen" id="s-notes">
@@ -468,7 +457,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.7.1';
+const APP_VERSION = '1.7.2';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -591,10 +580,9 @@ const plural = (n, f) => f[n % 10 === 1 && n % 100 !== 11 ? 0 : n % 10 >= 2 && n
 /* ===================== каркас: экраны, окна, сообщения ===================== */
 let current = 'rock';
 function go(s) {
-  const back = s === 'rock' && current !== 'rock';
+  if (s === 'rock' && current !== 'rock') setHero(false); // вернулись на камень — снова с «Моих дел»
   current = s;
   document.querySelectorAll('.screen').forEach((e) => e.classList.toggle('on', e.id === 's-' + s));
-  if (back) rockToList(); // вернулись на камень — снова с «Моих дел»
   document.querySelectorAll('.nav [data-s]').forEach((b) => b.classList.toggle('active', b.dataset.s === s));
   if (s === 'profile') renderStats();
   if (s === 'river') renderRiver(); // локация зависит от времени
@@ -1064,7 +1052,7 @@ function dragMove(x, y) {
 // у верхнего/нижнего края список сам прокручивается; нижняя зона — над корзиной, не заходя в неё
 function autoScroll() {
   if (!drag) return;
-  const sc = current === 'rock' ? $('rock-list') : document.querySelector('.screen.on');
+  const sc = document.querySelector('.screen.on');
   if (drag.type !== 'done') {
     const top = sc.getBoundingClientRect().top + (parseFloat(getComputedStyle(sc).paddingTop) || 0) + 50;
     const hotTop = $('trash-btn').getBoundingClientRect().top - 12, bottom = hotTop - 70;
@@ -1145,47 +1133,115 @@ function endDrag(cancelled) {
 }
 
 /* ===================== подсказка над «Моими делами» ===================== */
-/* Камень открывается сразу с «Моих дел»; подсказка с Рокки — над ними, за упругим барьером. Барьер
-   сделан из обычной прокрутки браузера: над экраном дел — невидимый запас прокрутки длиной B. Пока его
-   прокручиваешь, дела с подсказкой едут вниз не вместе с прокруткой, а по кривой сопротивления resist
-   (сила по пути: у края мала, посередине пик, дальше спадает): сначала подсказка охотно выглядывает,
-   у пика почти стоит, продавил — выезжает легко. Инерцию, остановку и «отпустил» ведёт сам браузер,
-   довести после отпускания до «открыто» или «Моих дел» — родная привязка прокрутки (scroll-snap): пик
-   ровно посередине пути, отпустил до него — назад, после — открыто. Дела листаются в своей прокрутке:
-   браузер держит жест в той прокрутке, где он начался, поэтому разгон по делам останавливается на «Моих
-   делах», а через барьер идёт только новый жест, начатый в самом верху. Нажатие на «Мои дела» —
-   открыть или спрятать. Своих расчётов жеста нет — палец, трекпад, колесо и мышь работают одинаково. */
-const resist = (s) => { const x = (s - 0.5) / 0.22; return 1 + 7 * Math.exp(-x * x); };
-const RN = 200, rcum = [0]; // сколько подсказки видно на пути s — интеграл 1 / resist
-for (let i = 1; i <= RN; i++) rcum.push(rcum[i - 1] + 1 / resist((i - 0.5) / RN));
-const reveal = (s) => { const k = Math.min(1, Math.max(0, s)) * RN, i = Math.min(RN - 1, Math.floor(k)); return (rcum[i] + (rcum[i + 1] - rcum[i]) * (k - i)) / rcum[RN]; };
-const heroFade = (s) => Math.min(1, reveal(s) * 1.6); // к пику подсказка уже проявилась
-const HERO_H = 160; // подсказка 142 + отступ 18
-/* Сдвиг дел на прогрессе p прокрутки через запас (p = 0 — открыто, 1 — «Мои дела»; путь s = 1 − p):
-   без сдвига дела уехали бы вниз на B·s, а надо — на reveal(s)·H; B = 140% высоты экрана (140cqh).
-   Кадры считаются один раз: в них только доли, а размеры — в единицах CSS, поэтому при изменении окна
-   (Telegram разворачивается, поворот экрана) ничего не пересчитывается и экран не дёргается. */
-const nativeTimeline = CSS.supports('animation-timeline: scroll()') && CSS.supports('height: 1cqh');
-if (nativeTimeline) {
-  const pct = (i) => (i / 120 * 100).toFixed(2) + '%', sAt = (i) => 1 - i / 120;
-  const move = Array.from({ length: 121 }, (_, i) => `${pct(i)}{transform:translateY(calc(${(HERO_H * reveal(sAt(i))).toFixed(2)}px - ${(140 * sAt(i)).toFixed(3)}cqh))}`).join('');
-  const fade = Array.from({ length: 121 }, (_, i) => { const p = heroFade(sAt(i)); return `${pct(i)}{opacity:${p.toFixed(3)};transform:scale(${(0.92 + 0.08 * p).toFixed(3)})}`; }).join('');
-  $('rock-anim').textContent = `@keyframes rock-move{${move}} @keyframes rock-fade{${fade}}
-    #s-rock{scroll-timeline:--rock block}
-    #rock-move{animation:rock-move linear both;animation-timeline:--rock}
-    #rock-hero .hero{animation:rock-fade linear both;animation-timeline:--rock}`;
-} else { // запасной путь для браузеров без анимации от прокрутки
-  $('s-rock').addEventListener('scroll', () => {
-    const sc = $('s-rock'), B = sc.scrollHeight - sc.clientHeight, s = 1 - Math.min(sc.scrollTop, B) / B, p = heroFade(s);
-    $('rock-move').style.transform = s > 0 ? `translateY(${HERO_H * reveal(s) - B * s}px)` : '';
-    Object.assign($('rock-hero').firstElementChild.style, { opacity: p, transform: `scale(${0.92 + 0.08 * p})` });
-  }, { passive: true });
+/* Подсказка с Рокки — обычный элемент над «Моими делами», спрятан (высота 0); камень открывается сразу
+   с «Моих дел». Прокрутку списка не трогаем и к ней ничего не привязываем: подсказка выезжает сама,
+   своей анимацией, когда её «вытянули». Один и тот же жест для пальца, трекпада и колеса — в самом
+   верху списка тянуть дальше вверх (палец вниз, прокрутка вверх):
+   - подсказка чуть выглядывает и упирается — это бугорок: чем ближе к вершине, тем меньше поддаётся;
+   - перевалили через вершину — она сама плавно выезжает целиком, отпускать не нужно;
+   - не дотянули и отпустили (или прокрутка остановилась) — уходит обратно.
+   Тянет только жест, начатый, когда список уже стоит в самом верху: докрутили снизу — инерция не тянет.
+   Ещё: нажатие на «Мои дела» — открыть или спрятать. Уходим с камня — подсказка снова прячется. */
+const HILL = 0.45;  // сколько тянуть до вершины бугорка — доля высоты экрана
+const PEEK = 0.3;   // насколько подсказка выглядывает у вершины — доля её высоты
+const WHEEL_GAP = 150; // пауза в прокрутке колесом/трекпадом — жест кончился
+const heroWrap = () => $('hero-wrap');
+const heroFull = () => { const h = heroWrap().firstElementChild; return h.offsetHeight + parseFloat(getComputedStyle(h).marginBottom); };
+const heroOpen = () => heroWrap().classList.contains('open');
+function heroShow(h, p) {
+  const w = heroWrap();
+  w.style.height = Math.max(0, h) + 'px';
+  w.style.setProperty('--p', Math.min(1, Math.max(0, p)).toFixed(3));
 }
-const rockToList = () => { $('s-rock').scrollTop = 1e6; }; // «Мои дела» наверху (низ общей прокрутки)
-function toggleHero() {
-  if (suppressClick) return;
-  const sc = $('s-rock'), B = sc.scrollHeight - sc.clientHeight;
-  sc.scrollTo({ top: sc.scrollTop < B / 2 ? B : 0, behavior: 'smooth' });
+function heroFinish(open) {
+  const w = heroWrap();
+  w.style.removeProperty('--p');
+  w.style.height = open ? heroFull() + 'px' : '';
+}
+/* Пружина как у Apple (SwiftUI .spring: отклик 0,5 с, затухание 0,7 — садится с лёгким отскоком) */
+let heroAnim = 0;
+function heroSpring(to) {
+  const w = heroWrap(), full = heroFull(), k = (2 * Math.PI / 0.5) ** 2, c = 4 * Math.PI * 0.7 / 0.5;
+  let x = w.offsetHeight, v = 0, last = performance.now();
+  const step = (now) => {
+    const dt = Math.min(0.032, (now - last) / 1000) / 4; last = now;
+    for (let i = 0; i < 4; i++) { v += (-k * (x - to) - c * v) * dt; x += v * dt; }
+    if (Math.abs(x - to) < 0.5 && Math.abs(v) < 10) {
+      heroFinish(to > 0);
+      if (to > 0) { w.classList.add('hop'); setTimeout(() => w.classList.remove('hop'), 700); } // Рокки подпрыгивает
+      return;
+    }
+    heroShow(x, x / full / PEEK);
+    heroAnim = requestAnimationFrame(step);
+  };
+  heroAnim = requestAnimationFrame(step);
+}
+function setHero(open, animate) {
+  cancelAnimationFrame(heroAnim);
+  tug = null;
+  heroWrap().classList.toggle('open', open);
+  heroWrap().classList.remove('hop');
+  if (animate) heroSpring(open ? heroFull() : 0); else heroFinish(open);
+}
+function toggleHero() { if (!suppressClick) setHero(!heroOpen(), true); }
+
+// жест «тянем»: amount — сколько потянули (px), hill — до вершины бугорка
+let tug = null;
+const canTug = () => current === 'rock' && !drag && !heroOpen() && $('s-rock').scrollTop <= 0 &&
+  !document.querySelector('.overlay.on, .sheet-back.on');
+function tugBegin(src) {
+  if (!canTug()) return;
+  cancelAnimationFrame(heroAnim);
+  tug = { src, amount: 0, hill: $('s-rock').clientHeight * HILL, full: heroFull() };
+}
+function tugBy(d) {
+  tug.amount = Math.max(0, tug.amount + d);
+  const u = tug.amount / tug.hill;
+  if (u >= 1) { haptic('drag'); setHero(true, true); return; } // перевалили — дальше она сама
+  heroShow(tug.full * PEEK * (1 - (1 - u) ** 3), u);            // у вершины почти не поддаётся
+}
+function tugEnd() {
+  const t = tug; tug = null;
+  if (t && t.amount > 0 && !heroOpen()) setHero(false, true); // не дотянули — назад
+}
+
+// палец
+let touch = null;
+function onTouchStart(e) { touch = e.touches.length === 1 && canTug() ? { y: e.touches[0].clientY, last: e.touches[0].clientY } : null; }
+function onTouchMove(e) {
+  if (!touch || drag) return; // поднятую карточку не трогаем
+  const y = e.touches[0].clientY, d = y - touch.y;
+  if (!touch.on) {
+    // Пока направление не ясно (дрожь пальца), касание не трогаем: отменённое первое движение запрещает
+    // браузеру прокрутку на весь жест — список «не листался», если палец, коснувшись, дрогнул вниз.
+    if (Math.abs(d) < SLOP) return;
+    if (d < 0 || !canTug()) { touch = null; return; } // повели вверх — это обычная прокрутка
+    touch.on = true; touch.last = touch.y + SLOP; tugBegin('touch');
+  }
+  if (e.cancelable) e.preventDefault(); // вверх прокручивать некуда — тянем подсказку
+  if (tug && tug.src === 'touch') tugBy(y - touch.last);
+  touch.last = y;
+}
+function onTouchEnd() {
+  if (touch && touch.on && tug && tug.src === 'touch') tugEnd();
+  touch = null;
+}
+
+// трекпад и колесо: жест — поток событий без пауз дольше WHEEL_GAP. Тянет только поток, начатый
+// в самом верху; браузеру прокрутку не запрещаем — вверх в самом верху прокручивать и так нечего
+let wheelLast = 0, wheelTimer = 0;
+function onWheel(e) {
+  const now = performance.now(), fresh = now - wheelLast > WHEEL_GAP;
+  wheelLast = now;
+  if (fresh) {
+    if (tug && tug.src === 'wheel') tugEnd();
+    if (e.deltaY < 0) tugBegin('wheel');
+  }
+  if (!tug || tug.src !== 'wheel') return; // поток начался не в самом верху (или подсказка уже выехала)
+  if (e.deltaY > 0) { tugEnd(); return; }  // повели вниз — обычная прокрутка
+  tugBy(-e.deltaY);
+  clearTimeout(wheelTimer);
+  wheelTimer = setTimeout(() => { if (tug && tug.src === 'wheel') tugEnd(); }, WHEEL_GAP);
 }
 
 /* ===================== облако Telegram ===================== */
@@ -1530,6 +1586,11 @@ function haptic(kind) {
 }
 
 /* ===================== старт ===================== */
+$('s-rock').addEventListener('touchstart', onTouchStart, { passive: true });
+$('s-rock').addEventListener('touchmove', onTouchMove, { passive: false });
+$('s-rock').addEventListener('touchend', onTouchEnd);
+$('s-rock').addEventListener('touchcancel', onTouchEnd);
+$('s-rock').addEventListener('wheel', onWheel, { passive: true });
 function renderAll() { renderTasks(); renderDone(); renderNotes(); renderStats(); }
 renderAll();
 renderRiver();
