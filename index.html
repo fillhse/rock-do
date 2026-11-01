@@ -9,109 +9,26 @@
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="icon" type="image/png" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-<script>
-/* Telegram Mini App: SDK грузим только внутри Telegram — вне его приложение не зависит от сети.
-   Признаки: данные запуска в адресе (после перезагрузки SDK хранит их в sessionStorage),
-   мост Android/iOS (TelegramWebviewProxy), мост Desktop (external.notify), iframe в Telegram Web */
-const IN_TG = (() => {
-  try {
-    return /tgWebApp/.test(location.hash) || /tgWebApp/.test(location.search) ||
-      !!window.TelegramWebviewProxy || !!(window.external && 'notify' in window.external) ||
-      /tgWebApp/.test(sessionStorage.getItem('__telegram__initParams') || '') ||
-      (window.parent !== window && /(^|\.)telegram\.org$|^web\.telegram\.org$/.test(document.referrer.split('/')[2] || ''));
-  } catch (e) { return false; }
-})();
-const tgTry = (fn) => { try { fn(); } catch (e) {} }; // одна упавшая команда не ломает остальные
-/* событие в Telegram напрямую по его протоколу (core.telegram.org/api/web-events) — без ожидания SDK.
-   Нужно для того, что должно случиться в первые миллисекунды: полный экран и «готово» после
-   первой отрисовки (Telegram держит свой экран загрузки, пока не получит web_app_ready). */
-function tgPost(type, data = {}) {
-  if (!IN_TG) return;
-  tgTry(() => {
-    if (window.TelegramWebviewProxy) TelegramWebviewProxy.postEvent(type, JSON.stringify(data));
-    else if (window.external && 'notify' in window.external) external.notify(JSON.stringify({ eventType: type, eventData: data }));
-    else if (window.parent !== window) parent.postMessage(JSON.stringify({ eventType: type, eventData: data }), 'https://web.telegram.org');
-  });
-}
-/* на телефоне — всегда на весь экран, как бы ни открыли (из списка чатов или кнопкой в боте).
-   Просим сразу, ещё до отрисовки: платформу и версию Telegram кладёт в адрес (#tgWebAppPlatform=…). */
-function tgEarlyFullscreen(hash = location.hash) {
-  const p = new URLSearchParams(hash.slice(1));
-  const asked = /^(android|ios)$/.test(p.get('tgWebAppPlatform')) && parseFloat(p.get('tgWebAppVersion')) >= 8 &&
-    p.get('tgWebAppFullscreen') !== '1';
-  if (asked) tgPost('web_app_request_fullscreen');
-  return asked;
-}
-const TG_FULLSCREEN_ASKED = IN_TG && tgEarlyFullscreen();
-if (IN_TG) {
-  document.documentElement.classList.add('tg');
-  const s = document.createElement('script');
-  s.src = 'https://telegram.org/js/telegram-web-app.js';
-  s.onload = () => {
-    const tg = window.Telegram && Telegram.WebApp;
-    if (!tg) return;
-    // Fullscreen: не залезать под статус-бар, кнопки Close/⋮ Telegram и жестовую полоску
-    const insets = () => {
-      const a = tg.safeAreaInset || {}, c = tg.contentSafeAreaInset || {};
-      const st = document.documentElement.style;
-      st.setProperty('--top', ((a.top || 0) + (c.top || 0)) + 'px');
-      st.setProperty('--bot', ((a.bottom || 0) + (c.bottom || 0)) + 'px');
-    };
-    tgTry(() => {
-      ['safeAreaChanged', 'contentSafeAreaChanged', 'fullscreenChanged', 'viewportChanged']
-        .forEach((ev) => tg.onEvent(ev, insets));
-      insets();
-      // переспрашиваем отступы уже после подписки — ответ точно не потеряется
-      Telegram.WebView.postEvent('web_app_request_safe_area');
-      Telegram.WebView.postEvent('web_app_request_content_safe_area');
-    });
-    tgTry(() => tg.ready());
-    tgTry(() => tg.expand());
-    // запасной путь, если в адресе не было параметров запуска (например, после перезагрузки)
-    tgTry(() => !TG_FULLSCREEN_ASKED && tg.isVersionAtLeast('8.0') && /android|ios/.test(tg.platform) &&
-      !tg.isFullscreen && tg.requestFullscreen());
-    // иначе свайп вниз при перетаскивании карточек и прокрутке колёс закрывает приложение
-    tgTry(() => tg.isVersionAtLeast('7.7') && tg.disableVerticalSwipes());
-    tgTry(() => tg.isVersionAtLeast('6.1') && tg.setHeaderColor('#030912'));
-    tgTry(() => tg.isVersionAtLeast('6.1') && tg.setBackgroundColor('#030912'));
-    tgTry(() => tg.isVersionAtLeast('7.10') && tg.setBottomBarColor('#050b14'));
-  };
-  document.head.appendChild(s);
-}
-/* вибрация: в Telegram — его хаптика (работает и на iPhone), иначе — navigator.vibrate */
-function haptic(kind) {
-  const hf = window.Telegram && Telegram.WebApp && Telegram.WebApp.HapticFeedback;
-  try {
-    if (IN_TG && hf) kind === 'success' ? hf.notificationOccurred('success') : hf.impactOccurred('medium');
-    else if (navigator.vibrate) navigator.vibrate(kind === 'success' ? 15 : 25);
-  } catch (e) {}
-}
-</script>
+<!-- SDK Telegram Mini Apps. Вне Telegram ничего не делает; без сети просто не загрузится -->
+<script async src="https://telegram.org/js/telegram-web-app.js" id="tg-sdk"></script>
 <style>
-/* ===== rock do, тёмная тема по макету (автономное демо без backend) ===== */
 :root{
   --bg1:#030912; --bg2:#07131c;
   --card:rgba(255,255,255,.05); --card2:rgba(255,255,255,.08);
   --accent:#4e20c8; --accent2:#6f38ff; --orange:#ffa42e;
   --text:#eef0f6; --muted:#8b93a7; --radius:14px;
-  /* отступы от краёв экрана: вырез/статус-бар и кнопки Telegram в Fullscreen, жестовая полоска снизу */
-  --top:env(safe-area-inset-top,0px); --bot:env(safe-area-inset-bottom,0px);
+  /* отступы от краёв: в полноэкранном режиме Telegram — статус-бар и его кнопки сверху, жестовая полоска снизу.
+     Значения кладёт сам SDK Telegram; вне Telegram они 0 */
+  --top:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px));
+  --bot:calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom,0px));
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
-body{background:#0b0e16;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-  display:flex;align-items:center;justify-content:center;color:var(--text);font-size:14px}
-/* рамка телефона, чтобы смотреть демо с десктопа */
-.phone{width:390px;height:780px;max-height:96vh;border-radius:34px;overflow:hidden;position:relative;
-  background:linear-gradient(180deg,var(--bg1),var(--bg2));
-  box-shadow:0 0 0 10px #11141f,0 30px 80px rgba(0,0,0,.7)}
-@media (max-width:430px){ .phone{width:100%;height:100%;max-height:none;border-radius:0;box-shadow:none} }
-/* в Telegram (в т.ч. Desktop с широким окном) — всегда на весь экран, без рамки */
-html.tg .phone{width:100%;height:100%;max-height:none;border-radius:0;box-shadow:none}
-html.tg .demo-note{display:none}
-/* запасной вариант: те же отступы, которые SDK Telegram сам кладёт в CSS-переменные */
-html.tg{--top:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px));
-  --bot:calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom,0px))}
+body{background:var(--bg1);color:var(--text);font-size:14px;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+/* на телефоне — весь экран; на широком экране — колонка по центру */
+.app{position:relative;height:100%;max-width:480px;margin:0 auto;overflow:hidden;
+  background:linear-gradient(180deg,var(--bg1),var(--bg2))}
 
 .screen{position:absolute;inset:0;overflow-y:auto;padding:calc(18px + var(--top)) 16px calc(116px + var(--bot));display:none}
 .screen.on{display:block}
@@ -119,58 +36,10 @@ h1{font-size:21px;margin-bottom:4px}
 .sub{color:var(--muted);font-size:12px;margin-bottom:16px}
 .card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);
   padding:13px 14px;margin-bottom:10px}
+.empty{text-align:center;padding:30px 20px;color:var(--muted)}
+.empty img{width:130px;margin-bottom:14px}
 
-/* задачи */
-.task,.note-card{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
-/* пока карточка «поднята», страница не выделяет текст и не показывает системное меню */
-html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-.drag-src{opacity:.25}
-
-/* корзина при переносе (по центру, на месте плюса) */
-.trash{position:absolute;left:0;right:0;bottom:calc(26px + var(--bot));z-index:60;
-  display:flex;flex-direction:column;align-items:center;gap:12px;
-  opacity:0;pointer-events:none;transform:translateY(46px);transition:all .22s ease}
-.trash.show{opacity:1;transform:none}
-.trash-hint{color:var(--muted);font-size:12px;text-align:center;line-height:1.45;transition:opacity .15s}
-.trash-btn{width:66px;height:66px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;
-  background:radial-gradient(circle at 50% 32%,#ff5c6c,#c01430);
-  border:2px solid rgba(255,120,130,.6);
-  box-shadow:0 0 30px rgba(255,60,80,.45),0 8px 22px rgba(0,0,0,.4);transition:all .18s}
-.trash.hot .trash-btn{transform:scale(1.22);box-shadow:0 0 60px rgba(255,70,90,.8),0 8px 22px rgba(0,0,0,.4)}
-.trash.hot .trash-hint{opacity:0}
-.trash-btn svg{width:26px;height:26px}
-
-/* плашка отмены удаления */
-.snack{position:absolute;left:14px;right:14px;bottom:calc(92px + var(--bot));z-index:55;
-  background:#131a2c;border:1px solid rgba(255,255,255,.08);border-radius:14px;
-  padding:14px 16px;display:flex;align-items:center;justify-content:space-between;
-  opacity:0;pointer-events:none;transform:translateY(16px);transition:all .2s ease}
-.snack.on{opacity:1;pointer-events:auto;transform:none}
-.snack button{background:none;border:none;color:var(--accent2);font-weight:600;font-size:14px;cursor:pointer}
-.task{display:flex;align-items:center;gap:12px;transition:opacity .4s,transform .4s}
-.task.done{opacity:0;transform:translateX(30px)}
-.task .tt{flex:1;min-width:0;cursor:pointer}
-.task .tt b{font-weight:500;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.task .due{color:var(--orange);font-size:11px;flex:none;margin-left:auto;white-space:nowrap}
-.checkbox{width:22px;height:22px;flex:none;border:2px solid var(--accent2);border-radius:50%;
-  display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;cursor:pointer}
-.checkbox.on{background:var(--accent2)}
-.hit{padding:11px;margin:-11px}
-
-/* сделанные: удержание = в корзину, тап = меню */
-.done-h{color:var(--muted);font-size:12px;margin:20px 0 10px}
-.done-h b{color:var(--text)}
-.done-wrap{position:relative;margin-bottom:10px;
-  user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-.done-wrap .done-card{margin-bottom:0}
-.done-card{display:flex;align-items:center;gap:12px;opacity:.62}
-.done-card.rep{opacity:.78;background:#131228 !important;border-color:rgba(111,56,255,.18)} /* повторы — чуть заметнее */
-.done-card .dt{flex:1;min-width:0}
-.done-card .dt b{font-weight:500;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.done-card .dt span{color:var(--muted);font-size:11px}
-.opt.danger{color:#ff6b6b}
-.ds-date{color:var(--muted);font-size:12px;margin:-6px 0 12px;white-space:pre-line;line-height:1.6}
-
+/* камень */
 .hero{display:flex;gap:16px;align-items:center;margin-bottom:18px;min-height:142px;
   padding:14px 18px;border-radius:18px;border:1px solid rgba(255,255,255,.06);
   background:radial-gradient(circle at 24% 62%, rgba(111,56,255,.16), transparent 62%),
@@ -178,20 +47,66 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 .hero img{width:114px;height:auto;flex:none;filter:drop-shadow(0 10px 22px rgba(0,0,0,.45))}
 .hero .phrase{font-size:18px;font-weight:700;line-height:1.3}
 .hero .hint{color:var(--accent2);font-size:12px;line-height:1.4;margin-top:8px}
-.empty{text-align:center;padding:30px 20px;color:var(--muted)}
-.empty img{width:130px;margin-bottom:14px}
+.count{margin-bottom:10px}
+.count b{color:var(--text)}
 
+/* карточки, которые можно взять пальцем */
+.task,.note-card,.done-wrap{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
+html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.drag-src{opacity:.25}
+
+.task{display:flex;align-items:center;gap:12px;transition:opacity .4s,transform .4s}
+.task.done{opacity:0;transform:translateX(30px)}
+.task .tt{flex:1;min-width:0;cursor:pointer}
+.task .tt b,.done-card .dt b{font-weight:500;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task .due{color:var(--orange);font-size:11px;flex:none;margin-left:auto;white-space:nowrap}
+.checkbox{width:22px;height:22px;flex:none;border:2px solid var(--accent2);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;cursor:pointer}
+.checkbox.on{background:var(--accent2)}
+.hit{padding:11px;margin:-11px} /* палец попадает в кружок с запасом */
+
+/* сделанные */
+.done-h{color:var(--muted);font-size:12px;margin:20px 0 10px}
+.done-h b{color:var(--text)}
+.done-wrap{margin-bottom:10px}
+.done-card{display:flex;align-items:center;gap:12px;opacity:.62;margin-bottom:0}
+.done-card.rep{opacity:.78;background:#131228;border-color:rgba(111,56,255,.18)} /* повторы — чуть заметнее */
+.done-card .dt{flex:1;min-width:0}
+.done-card .dt span{color:var(--muted);font-size:11px}
+.ds-date{color:var(--muted);font-size:12px;margin:-6px 0 12px;white-space:pre-line;line-height:1.6}
+
+/* корзина при переносе */
+.trash{position:absolute;left:0;right:0;bottom:calc(26px + var(--bot));z-index:60;
+  display:flex;flex-direction:column;align-items:center;gap:12px;
+  opacity:0;pointer-events:none;transform:translateY(46px);transition:all .22s ease}
+.trash.show{opacity:1;transform:none}
+.trash-hint{color:var(--muted);font-size:12px;text-align:center;line-height:1.45;transition:opacity .15s}
+.trash-btn{width:66px;height:66px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;
+  background:radial-gradient(circle at 50% 32%,#ff5c6c,#c01430);border:2px solid rgba(255,120,130,.6);
+  box-shadow:0 0 30px rgba(255,60,80,.45),0 8px 22px rgba(0,0,0,.4);transition:all .18s}
+.trash.hot .trash-btn{transform:scale(1.22);box-shadow:0 0 60px rgba(255,70,90,.8),0 8px 22px rgba(0,0,0,.4)}
+.trash.hot .trash-hint{opacity:0}
+.trash-btn svg{width:26px;height:26px}
+
+/* отмена удаления */
+.snack{position:absolute;left:14px;right:14px;bottom:calc(92px + var(--bot));z-index:55;
+  background:#131a2c;border:1px solid rgba(255,255,255,.08);border-radius:14px;
+  padding:14px 16px;display:flex;align-items:center;justify-content:space-between;
+  opacity:0;pointer-events:none;transform:translateY(16px);transition:all .2s ease}
+.snack.on{opacity:1;pointer-events:auto;transform:none}
+.snack button{background:none;border:none;color:var(--accent2);font-weight:600;font-size:14px;cursor:pointer}
+
+/* кнопки */
 .btn{display:block;width:100%;border:none;cursor:pointer;
   background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;
   font-size:15px;font-weight:600;padding:14px;border-radius:var(--radius);margin-top:8px}
 .btn:disabled{opacity:.45}
 .btn.dark{background:var(--card2)}
-.btn.small{width:auto;padding:8px 16px;font-size:13px;display:inline-block}
+.btn.small{width:auto;padding:8px 16px;font-size:13px;display:inline-block;margin-top:0}
 
 /* нижняя навигация */
 .nav{position:absolute;left:0;right:0;bottom:0;height:calc(76px + var(--bot));z-index:10;
-  background:rgba(5,11,20,.96);backdrop-filter:blur(14px);
-  border-top:1px solid rgba(255,255,255,.05);
+  background:rgba(5,11,20,.96);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,.05);
   display:flex;align-items:center;justify-content:space-around;padding:0 6px var(--bot)}
 .nav button{background:none;border:none;color:#6b7280;font-size:10px;letter-spacing:.02em;cursor:pointer;
   flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-height:48px;justify-content:center;
@@ -200,62 +115,54 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 .nav svg{width:23px;height:23px;transition:transform .12s}
 .nav button:active svg{transform:scale(.86)}
 .nav .plus{width:58px;height:58px;border-radius:50%;transform:translateY(-14px);
-  background:linear-gradient(160deg,#ffd44d,#ffb52e);
-  display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(160deg,#ffd44d,#ffb52e);display:flex;align-items:center;justify-content:center;
   box-shadow:0 0 26px rgba(255,200,70,.4),0 6px 16px rgba(0,0,0,.35);transition:transform .12s}
 .nav button:active .plus{transform:translateY(-14px) scale(.92)}
 .nav .plus svg{width:24px;height:24px;color:#1c1303}
 
-/* оверлеи */
+/* окна поверх экрана */
 .overlay{position:absolute;inset:0;z-index:20;background:linear-gradient(180deg,var(--bg1),var(--bg2));
   padding:calc(20px + var(--top)) 16px calc(20px + var(--bot));overflow-y:auto;display:none;animation:up .22s ease}
 .overlay.on{display:block}
+.overlay.col.on{display:flex;flex-direction:column}
 @keyframes up{from{transform:translateY(30px);opacity:0}}
 .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
 .close{background:var(--card2);border:none;color:var(--text);width:34px;height:34px;border-radius:50%;font-size:15px;cursor:pointer}
-.input{width:100%;background:var(--card);color:var(--text);border:1px solid rgba(255,255,255,.08);
-  border-radius:var(--radius);padding:14px;font-size:15px;margin-bottom:12px;outline:none}
-.input:focus{border-color:var(--accent2)}
-textarea.input{min-height:110px;resize:vertical;font-family:inherit}
 .row{display:flex;justify-content:space-between;align-items:center;background:var(--card);
   border:1px solid rgba(255,255,255,.08);border-radius:var(--radius);padding:14px;margin-bottom:12px;cursor:pointer}
 .row .val,.chev{color:var(--muted)}
-.rockhint{display:flex;gap:12px;align-items:center;margin-top:18px}
+.rockhint{display:flex;gap:12px;align-items:center}
 .rockhint img{width:56px}
 .rockhint span{color:var(--muted);font-size:12px;line-height:1.4}
 
-/* форма дела: поле крупнее, кнопки прижаты к низу */
-.nt{display:none;flex-direction:column}
-.nt.on{display:flex}
-/* компактное поле, как в исходном макете; растёт только под длинный текст */
-/* min-height = строка + отступы + рамка: поле не схлопнется, даже если высоту посчитали до показа окна */
-textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15px;line-height:1.45;
-  resize:none;overflow:hidden;margin-top:14px;padding-top:16px;padding-bottom:16px}
-.nt .rockhint{margin:30px 0 16px} /* камень с подсказкой — с воздухом под кнопками, как в макете */
-/* блоки формы дела — той же высоты, что в «Напоминании» */
-.nt .row{padding-top:17px;padding-bottom:17px}
-.nt .btn{padding-top:17px;padding-bottom:17px}
+/* окно дела */
+.t-title{width:100%;background:var(--card);color:var(--text);border:1px solid rgba(255,255,255,.08);
+  border-radius:var(--radius);padding:16px 14px;margin:14px 0 12px;outline:none;font:inherit;font-size:15px;
+  line-height:1.45;resize:none;overflow:hidden;min-height:calc(1.45em + 34px)} /* одна строка; растёт под длинный текст */
+.t-title:focus{border-color:var(--accent2)}
+#o-task .row,#o-task .btn{padding-top:17px;padding-bottom:17px}
+#o-task .rockhint{margin:30px 0 16px}
 
-/* пикер */
+/* напоминание: колёса даты и времени */
 .picker-title{text-align:center;font-size:19px;font-weight:600;margin:24px 0 16px}
 .wheels{display:flex;gap:8px}
-.wheel{flex:1;height:215px;overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none}
+.wheels>div{flex:1}
+.wheels>div:first-child{flex:1.4}
+.wlbl{text-align:center;color:var(--muted);font-size:11px;margin-bottom:6px}
+.wheel{height:215px;overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none}
 .wheel::-webkit-scrollbar{display:none}
 .wheel .pad{height:86px}
 .wheel .item{height:43px;display:flex;align-items:center;justify-content:center;
   scroll-snap-align:center;color:var(--muted);font-size:15px;cursor:pointer}
 .wheel .item.sel{color:#fff;background:rgba(111,56,255,.25);border-radius:10px;font-weight:600}
-.wlbl{text-align:center;color:var(--muted);font-size:11px;margin-bottom:6px}
 .btnrow{display:flex;gap:10px;margin-top:16px}
 .btnrow .btn{margin-top:0}
 
-/* заметки — плитка в 2 колонки (masonry, новые сверху слева) */
+/* камушки — плитка в 2 колонки */
 #note-list{display:flex;gap:10px;align-items:flex-start}
 #note-list .ncol{flex:1;min-width:0}
-.note-card{display:block;width:100%;cursor:pointer;
-  background:var(--card);border:1px solid rgba(255,255,255,.06);
-  border-radius:var(--radius);padding:13px 14px;margin-bottom:10px;
-  transition:transform .12s,background .12s}
+.note-card{display:block;width:100%;cursor:pointer;background:var(--card);border:1px solid rgba(255,255,255,.06);
+  border-radius:var(--radius);padding:13px 14px;margin-bottom:10px;transition:transform .12s,background .12s}
 .note-card:active{transform:scale(.97);background:var(--card2)}
 .note-title{color:var(--text);font-weight:600;font-size:14px;line-height:1.3;margin-bottom:6px;word-break:break-word;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -263,9 +170,7 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
   display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 .note-date{color:#525d70;font-size:10px;margin-top:8px}
 
-/* полноэкранный редактор заметки */
-.ne{display:none;flex-direction:column}
-.ne.on{display:flex}
+/* редактор камушка */
 .ne-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}
 .ne-actions{display:flex;gap:6px}
 .ne-ic{background:none;border:none;color:var(--text);font-size:21px;width:42px;height:42px;
@@ -273,33 +178,28 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
 .ne-ic:active{background:var(--card2)}
 .ne-ic:disabled{opacity:.3}
 .ne-ic.ok{color:var(--accent2);font-size:23px}
-.ne-title{background:none;border:none;outline:none;color:var(--text);
-  font-size:27px;font-weight:700;width:100%;margin-bottom:10px}
-.ne-title::placeholder{color:#3a4254}
+.ne-title{background:none;border:none;outline:none;color:var(--text);font-size:27px;font-weight:700;width:100%;margin-bottom:10px}
 .ne-meta{color:#525d70;font-size:12px;margin-bottom:18px;display:flex;gap:10px;align-items:center}
 .ne-sep{opacity:.5}
 .ne-body{background:none;border:none;outline:none;color:var(--text);resize:none;
   font-size:15px;line-height:1.55;flex:1;font-family:inherit;width:100%}
-.ne-body::placeholder{color:#3a4254}
+.ne-title::placeholder,.ne-body::placeholder{color:#3a4254}
 
-
-/* речка: фон-локация на весь экран, контент поверх */
+/* речка: фон-локация на весь экран, текст поверх */
 .screen.river{padding:0;overflow:hidden}
-.rv-bg{position:absolute;inset:0;background-size:cover;background-position:center;transition:background-image .3s}
+.rv-bg{position:absolute;inset:0;background-size:cover;background-position:center}
 .rv-bg:after{content:'';position:absolute;inset:0;
   background:linear-gradient(180deg,rgba(3,9,18,.84) 0%,rgba(3,9,18,.3) 18%,rgba(3,9,18,0) 34%,
              rgba(3,9,18,.5) 55%,rgba(3,9,18,.88) 72%,rgba(3,9,18,.97) 100%)}
 .rv-top{position:absolute;top:0;left:0;right:0;padding:calc(18px + var(--top)) 16px 0;z-index:2}
 .rv-chip{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:9px 15px;border-radius:22px;
-  background:rgba(10,14,24,.55);backdrop-filter:blur(8px);
-  color:#ffd479;font-size:13px;font-weight:600}
+  background:rgba(10,14,24,.55);backdrop-filter:blur(8px);color:#ffd479;font-size:13px;font-weight:600}
 .rv-chip svg{width:16px;height:16px;display:block}
 .rv-bottom{position:absolute;left:0;right:0;bottom:calc(96px + var(--bot));padding:0 16px;z-index:2}
 .rv-title{font-size:27px;font-weight:700;margin-bottom:8px;text-shadow:0 2px 14px rgba(0,0,0,.65)}
 .rv-text{font-size:15px;line-height:1.55;color:#e8ebf4;white-space:pre-line;margin-bottom:18px;
   text-shadow:0 1px 10px rgba(0,0,0,.7)}
-.rv-btn{display:flex;align-items:center;justify-content:center;gap:10px;margin:0;
-  padding:17px;font-size:17px;border-radius:18px}
+.rv-btn{display:flex;align-items:center;justify-content:center;gap:10px;margin:0;padding:17px;font-size:17px;border-radius:18px}
 .rv-btn img{width:24px;height:auto}
 
 /* профиль */
@@ -312,9 +212,8 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
 .setting:last-child{border-bottom:none}
 .setting svg{width:20px;height:20px;color:var(--accent2);flex:none}
 .setting .name{flex:1;font-size:14px}
-.setting .name .sub2{display:block;color:var(--muted);font-size:11px;margin-top:2px;font-weight:400}
+.setting .name small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
 .setting .val{color:var(--muted);font-size:13px}
-/* гора сделанного */
 .mnt-card{position:relative;overflow:hidden;padding:16px 14px;min-height:118px}
 .mnt-title{font-size:15px;font-weight:600;margin-bottom:14px}
 .mnt-stats{display:flex;width:64%}
@@ -323,67 +222,62 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
 .mstat span{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
 .mstat b{font-size:23px;color:var(--accent2)}
 .mnt-img{position:absolute;right:-12px;bottom:-8px;width:44%;pointer-events:none}
-/* карточка Telegram */
 .tg-card{display:flex;align-items:center;gap:12px;padding:14px}
 .tg-ic{width:48px;height:48px;border-radius:50%;background:#5b2fd1;flex:none;display:flex;align-items:center;justify-content:center}
 .tg-ic svg{width:22px;height:22px;color:#fff}
 .tg-tx{flex:1;min-width:0}
 .tg-tx b{font-size:15px}
 .tg-tx span{display:block;color:var(--muted);font-size:11.5px;line-height:1.4;margin-top:3px}
-.tg-card .btn.small{margin-top:0}
 
-/* toast */
+/* всплывающее сообщение */
 .toast{position:absolute;left:50%;bottom:calc(102px + var(--bot));transform:translateX(-50%);z-index:50;
   background:#1d1633;border:1px solid var(--accent);padding:10px 18px;border-radius:12px;
   font-size:13px;display:none;align-items:center;gap:10px;animation:toastin .2s ease;
   width:max-content;max-width:calc(100% - 32px);line-height:1.4}
 .toast.on{display:flex}
 .toast img{width:30px}
-.toast span{white-space:pre-line}
-@keyframes toastin{from{transform:translate(-50%,30px);opacity:0}} /* своя анимация: общая `up` сбивала центрирование */
+@keyframes toastin{from{transform:translate(-50%,30px);opacity:0}}
 
-.modal-back{position:absolute;inset:0;background:rgba(0,0,0,.6);z-index:30;display:none;align-items:flex-end}
-.modal-back.on{display:flex}
-.modal{background:var(--bg2);border-radius:18px 18px 0 0;padding:20px 16px calc(28px + var(--bot));width:100%;animation:up .2s ease}
-.modal h2{font-size:17px;margin-bottom:12px}
-.modal .opt{padding:13px;border-radius:10px;cursor:pointer}
-.modal .opt.sel{background:rgba(111,56,255,.25);color:#fff}
+/* нижние меню */
+.sheet-back{position:absolute;inset:0;background:rgba(0,0,0,.6);z-index:30;display:none;align-items:flex-end}
+.sheet-back.on{display:flex}
+.sheet{background:var(--bg2);border-radius:18px 18px 0 0;padding:20px 16px calc(28px + var(--bot));width:100%;animation:up .2s ease}
+.sheet h2{font-size:17px;margin-bottom:12px}
+.opt{padding:13px;border-radius:10px;cursor:pointer}
+.opt.sel{background:rgba(111,56,255,.25);color:#fff}
+.opt.danger{color:#ff6b6b}
 .days-row{display:flex;gap:8px;margin:10px 0 6px;justify-content:space-between}
 .day-chip{width:40px;height:40px;border-radius:50%;border:1.5px solid rgba(255,255,255,.16);
-  display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);
-  cursor:pointer;transition:all .12s}
+  display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);cursor:pointer;transition:all .12s}
 .day-chip.sel{background:var(--accent2);border-color:var(--accent2);color:#fff}
-.demo-note{position:fixed;top:8px;left:0;right:0;text-align:center;color:#566;font-size:11px}
-@media (display-mode:standalone){ .demo-note{display:none} }
 </style>
 </head>
 <body>
-<div class="demo-note">данные хранятся только на этом устройстве</div>
-<div class="phone" id="phone">
+<div class="app">
 
-  <!-- ЭКРАН 1: Камень -->
-  <div class="screen on" id="s-rock">
+  <!-- Камень: дела -->
+  <section class="screen on" id="s-rock">
     <div class="hero">
-      <img src="img/rock-neutral.webp" alt="rock" width="360" height="322" fetchpriority="high">
+      <img src="img/rock-neutral.webp" alt="Рокки" width="360" height="322" fetchpriority="high">
       <div>
         <div class="phrase">Маленький шаг сегодня — большая гора завтра.</div>
         <div class="hint">Новые советы + Напоминания в Telegram</div>
       </div>
     </div>
-    <div class="sub" style="margin-bottom:10px">Мои дела <b style="color:var(--text)" id="task-count">0</b></div>
+    <div class="sub count">Мои дела <b id="task-count">0</b></div>
     <div id="task-list"></div>
-    <div id="done-sec"></div>
-  </div>
+    <div id="done-list"></div>
+  </section>
 
-  <!-- ЭКРАН 2: Заметки -->
-  <div class="screen" id="s-notes">
+  <!-- Камушки: заметки -->
+  <section class="screen" id="s-notes">
     <h1>Камушки</h1>
     <div class="sub">Простое место для мыслей и идей</div>
     <div id="note-list"></div>
-  </div>
+  </section>
 
-  <!-- ЭКРАН 5: Речка (локация Рокки меняется по времени суток) -->
-  <div class="screen river" id="s-river">
+  <!-- Речка: локация Рокки меняется по времени суток -->
+  <section class="screen river" id="s-river">
     <div class="rv-bg" id="rv-bg"></div>
     <div class="rv-top">
       <h1>Речка</h1>
@@ -397,10 +291,10 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
         <img src="img/pebble.webp" alt="" loading="lazy"><span>Бросить камушек</span>
       </button>
     </div>
-  </div>
+  </section>
 
-  <!-- ЭКРАН 6: Профиль -->
-  <div class="screen" id="s-profile">
+  <!-- Профиль -->
+  <section class="screen" id="s-profile">
     <h1>Профиль</h1>
     <div class="p-hero">
       <img src="img/rock-happy.webp" alt="Рокки" loading="lazy">
@@ -412,7 +306,7 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
       <div class="setting" onclick="toast('Тёмная тема — базовая. Другие темы появятся в Pro.')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M20 13A8 8 0 1 1 11 4a6.5 6.5 0 0 0 9 9Z"/></svg>
         <span class="name">Тема интерфейса</span><span class="val">Тёмная</span><span class="chev">›</span></div>
-      <div class="setting" onclick="toast('В демо уведомления не работают — нужен бот.')">
+      <div class="setting" onclick="toast('Напоминания придут, когда подключим бота.')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16v-5a6 6 0 1 1 12 0v5l1.5 2.5H4.5Z"/><path d="M10 21h4"/></svg>
         <span class="name">Уведомления</span><span class="val">Вкл.</span><span class="chev">›</span></div>
       <div class="setting" onclick="toast('Пока доступен русский.')">
@@ -439,95 +333,88 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
     <div class="card">
       <div class="setting" onclick="toast('Поддержка скоро. Пока пиши прямо боту.')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.4 2.6c-.7.3-1 .8-1 1.6"/><circle cx="12" cy="16.6" r=".4" fill="currentColor"/></svg>
-        <span class="name">Помощь и поддержка<span class="sub2">Ответы на вопросы и связь с нами</span></span><span class="chev">›</span></div>
-      <div class="setting" onclick="aboutToast()">
+        <span class="name">Помощь и поддержка<small>Ответы на вопросы и связь с нами</small></span><span class="chev">›</span></div>
+      <div class="setting" onclick="toast('Rocky · версия ' + APP_VERSION)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5"/><circle cx="12" cy="8" r=".4" fill="currentColor"/></svg>
-        <span class="name">О приложении<span class="sub2">Условия, политика и версия</span></span><span class="val">версия 1.1.0</span><span class="chev">›</span></div>
+        <span class="name">О приложении<small>Условия, политика и версия</small></span><span class="val" id="ver-val"></span><span class="chev">›</span></div>
     </div>
-  </div>
+  </section>
 
-  <!-- ЭКРАН 3: Новое дело / редактирование -->
-  <div class="overlay nt" id="o-task">
+  <!-- Новое дело / редактирование -->
+  <div class="overlay col" id="o-task">
     <div class="top"><h1 id="te-title">Новое дело</h1><button class="close" onclick="closeOverlay('o-task')">✕</button></div>
-    <textarea class="input nt-title" id="t-title" maxlength="120" rows="1" placeholder="Что нужно сделать?"
-              enterkeyhint="done"
-              oninput="saveBtn.disabled=!this.value.trim();autoGrow(this)"
-              onkeydown="if(event.key==='Enter'){event.preventDefault();if(this.value.trim())saveTask()}"></textarea>
+    <textarea class="t-title" id="t-title" maxlength="120" rows="1" placeholder="Что нужно сделать?" enterkeyhint="done"
+              oninput="onTitleInput()" onkeydown="if(event.key==='Enter'){event.preventDefault();saveTask()}"></textarea>
     <div class="row" onclick="openPicker()"><span>Когда сделать?</span><span class="val"><span id="t-due-label">Без срока</span> <span class="chev">›</span></span></div>
-    <button class="btn" id="saveBtn" disabled onclick="saveTask()">Положить</button>
+    <button class="btn" id="save-btn" disabled onclick="saveTask()">Положить</button>
     <button class="btn dark" onclick="closeOverlay('o-task')">Отмена</button>
     <div class="rockhint"><img src="img/rock-neutral.webp" alt="" loading="lazy"><span>Камень рядом и напомнит<br>в нужный момент</span></div>
-    <button class="btn dark" id="delBtn" style="display:none" onclick="deleteTask()">Удалить дело</button>
+    <button class="btn dark" id="del-btn" onclick="deleteTask()">Удалить дело</button>
   </div>
 
-  <!-- ЭКРАН 4: Напоминание -->
+  <!-- Напоминание -->
   <div class="overlay" id="o-picker">
     <div class="top"><h1>Напоминание</h1><button class="close" onclick="cancelPicker()">✕</button></div>
     <div class="picker-title" id="p-summary"></div>
     <div class="wheels">
-      <div style="flex:1.4"><div class="wlbl">Дата</div><div class="wheel" id="w-day"></div></div>
-      <div style="flex:1"><div class="wlbl">Час</div><div class="wheel" id="w-hour"></div></div>
-      <div style="flex:1"><div class="wlbl">Минуты</div><div class="wheel" id="w-min"></div></div>
+      <div><div class="wlbl">Дата</div><div class="wheel" id="w-day"></div></div>
+      <div><div class="wlbl">Час</div><div class="wheel" id="w-hour"></div></div>
+      <div><div class="wlbl">Минуты</div><div class="wheel" id="w-min"></div></div>
     </div>
-    <div class="row" onclick="repModal.classList.add('on')"><span>Повтор</span><span class="val"><span id="p-rep-label">Никогда</span> <span class="chev">›</span></span></div>
+    <div class="row" onclick="openSheet('rep-sheet')"><span>Повтор</span><span class="val"><span id="p-rep-label">Никогда</span> <span class="chev">›</span></span></div>
     <div class="btnrow">
       <button class="btn dark" onclick="pickNoDue()">Без срока</button>
       <button class="btn" onclick="pickOk()">OK</button>
     </div>
   </div>
 
-  <!-- полноэкранный редактор заметки -->
-  <div class="overlay ne" id="o-note">
+  <!-- Редактор камушка -->
+  <div class="overlay col" id="o-note">
     <div class="ne-top">
       <button class="ne-ic" onclick="closeOverlay('o-note')" title="Выйти без сохранения">←</button>
       <div class="ne-actions">
-        <button class="ne-ic" id="undoBtn" onclick="neUndo()" title="Отменить">↶</button>
-        <button class="ne-ic" id="redoBtn" onclick="neRedo()" title="Вернуть">↷</button>
+        <button class="ne-ic" id="undo-btn" onclick="noteUndo()" title="Отменить">↶</button>
+        <button class="ne-ic" id="redo-btn" onclick="noteRedo()" title="Вернуть">↷</button>
         <button class="ne-ic ok" onclick="saveNote()" title="Сохранить">✓</button>
       </div>
     </div>
-    <input class="ne-title" id="n-title" placeholder="Заголовок" oninput="histPush()" enterkeyhint="next"
-           onkeydown="if(event.key==='Enter'){event.preventDefault();nBody().focus()}">
-    <div class="ne-meta"><span id="ne-date"></span><span class="ne-sep">|</span><span id="ne-count">0 символов</span></div>
-    <textarea class="ne-body" id="n-body" placeholder="Начните ввод" oninput="neCount();histPush()"></textarea>
+    <input class="ne-title" id="n-title" placeholder="Заголовок" enterkeyhint="next"
+           oninput="noteChanged()" onkeydown="if(event.key==='Enter'){event.preventDefault();$('n-body').focus()}">
+    <div class="ne-meta"><span id="ne-date"></span><span class="ne-sep">|</span><span id="ne-count"></span></div>
+    <textarea class="ne-body" id="n-body" placeholder="Начните ввод" oninput="noteChanged()"></textarea>
   </div>
 
-  <!-- модалки -->
-  <div class="modal-back" id="repModal" onclick="if(event.target===this)this.classList.remove('on')">
-    <div class="modal">
+  <!-- Повтор -->
+  <div class="sheet-back" id="rep-sheet" onclick="if(event.target===this)closeSheet('rep-sheet')">
+    <div class="sheet">
       <h2>Повтор</h2>
       <div id="rep-opts"></div>
       <div class="p-label" style="margin-top:14px">Свои дни</div>
       <div class="days-row" id="days-row"></div>
-      <button class="btn" onclick="repModal.classList.remove('on')">Готово</button>
+      <button class="btn" onclick="closeSheet('rep-sheet')">Готово</button>
     </div>
   </div>
 
-  <!-- корзина (появляется при удержании карточки) -->
+  <!-- Меню сделанного дела -->
+  <div class="sheet-back" id="done-sheet" onclick="if(event.target===this)closeSheet('done-sheet')">
+    <div class="sheet">
+      <h2 id="ds-title"></h2>
+      <div class="ds-date" id="ds-date"></div>
+      <div class="opt" id="ds-restore" onclick="restoreDone(sheetDoneId);closeSheet('done-sheet')"></div>
+      <div class="opt danger" onclick="deleteDone(sheetDoneId);closeSheet('done-sheet')">Удалить из истории</div>
+    </div>
+  </div>
+
+  <!-- Корзина (появляется, когда карточку взяли) -->
   <div class="trash" id="trash">
     <div class="trash-hint">Перетащи сюда,<br>чтобы удалить</div>
-    <div class="trash-btn" id="trashBtn">
+    <div class="trash-btn" id="trash-btn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9.5 7V5h5v2M6.5 7l1 13h9l1-13"/><path d="M10 11.5v6M14 11.5v6"/></svg>
     </div>
   </div>
 
-  <!-- меню сделанной задачи -->
-  <div class="modal-back" id="doneSheet" onclick="if(event.target===this)this.classList.remove('on')">
-    <div class="modal">
-      <h2 id="ds-title"></h2>
-      <div class="ds-date" id="ds-date"></div>
-      <div class="opt" id="ds-restore" onclick="dsRestore()">↩ Вернуть на камень</div>
-      <div class="opt danger" onclick="dsDelete()">Удалить из истории</div>
-    </div>
-  </div>
+  <div class="snack" id="snack"><span id="snack-text"></span><button onclick="undoDelete()">Отменить</button></div>
 
-  <!-- плашка отмены удаления -->
-  <div class="snack" id="snack">
-    <span id="snack-text"></span>
-    <button onclick="snackUndo()">Отменить</button>
-  </div>
-
-  <!-- навигация -->
   <nav class="nav">
     <button data-s="rock" class="active" onclick="go('rock')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M11.7 19.5 8.1 19.2 4.7 18.2 3.1 16.3 2.5 13.5 6.7 7.1 11.6 4.8 12.7 4.5 15.5 5.5 17.3 7.0 19.7 9.6 21.5 13.1 20.3 16.2 19.3 17.5 17.4 17.8 14.9 19.2Z"/><path d="M6.9 8.1 4.0 11.8 2.9 14.0M15.2 6.2 15.1 5.9 13.8 5.4 12.1 5.1 7.5 7.3 6.9 8.0M12.1 8.9 10.8 8.1 6.9 8.1M12.1 8.9 13.8 6.7 15.2 6.4M16.1 15.0 16.8 14.0M16.1 15.0 12.3 15.9M16.1 15.0 17.4 17.2M12.1 9.0 11.1 10.9 8.3 13.2 7.5 15.3M20.8 13.1 20.5 14.7 19.5 16.6 18.6 17.0 17.4 17.2M12.3 15.9 7.5 15.3M16.8 14.0 12.3 9.0M16.8 14.0 20.8 13.1M15.4 6.4 16.2 6.8 19.0 9.6 20.6 12.1 20.8 13.1M2.9 14.1 3.4 15.9 4.0 16.8 5.3 17.9 7.3 18.5M11.0 18.9 14.6 18.6 17.4 17.2M3.1 14.0 7.3 15.3M7.3 18.4 7.3 15.3M12.3 15.9 11.0 18.9M7.3 18.5 10.8 18.9"/></svg>
@@ -546,63 +433,426 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
       Профиль</button>
   </nav>
 
-  <div class="toast" id="toastEl"><img src="img/rock-happy.webp" id="toast-img" style="display:none" alt="" loading="lazy"><span id="toast-text"></span></div>
+  <div class="toast" id="toast"><img src="img/rock-happy.webp" id="toast-img" alt="" loading="lazy"><span id="toast-text"></span></div>
 </div>
 
 <script>
-/* ================= данные (localStorage вместо backend) ================= */
-const LS = 'rockdo-demo';
-const seed = {
-  tasks: [
-    { id: 1, title: 'Прочитать 20 страниц', due: todayAt(19, 0), rep: 'never' },
-    { id: 2, title: 'Тренировка', due: todayAt(19, 0), rep: 'daily' },
-    { id: 3, title: 'Позвонить маме', due: null, rep: 'never' },
-    { id: 4, title: 'Учить английский 15 мин', due: tomorrowAt(10, 0), rep: 'never' },
-  ],
-  notes: [
-    { id: 1, title: 'Идея для проекта', body: 'Сервис, который помогает людям сохранять фокус на важном...', at: Date.now() - 3600e3 },
-    { id: 2, title: 'Цитата', body: 'Дисциплина — это мост между целями и достижениями.', at: Date.now() - 86400e3 },
-  ],
-  done: [], river: null, nextId: 100,
-};
-// хранилище может быть недоступно (приватный режим, превью) — тогда работаем в памяти
-let db;
-try { db = JSON.parse(localStorage.getItem(LS) || 'null') || seed; } catch (e) { db = seed; }
-const save = () => { try { localStorage.setItem(LS, JSON.stringify(db)); } catch (e) {} };
-// миграция: поле pos (ручной порядок); новые элементы получают min(pos)-1 — встают сверху
-if (db.tasks.some((t) => t.pos === undefined)) db.tasks.forEach((t) => t.pos = -t.id);
-if (db.notes.some((n) => n.pos === undefined)) db.notes.forEach((n) => n.pos = -n.at);
-// миграция: completed -> done (старые записи без названия учитываются только в статистике)
-db.done = db.done || [];
-if (db.completed) { db.done.push(...db.completed.map((c) => ({ at: c.at, title: null }))); delete db.completed; }
-const nextPos = (arr) => arr.length ? Math.min(...arr.map((x) => x.pos)) - 1 : 0;
-// гид-заметка от Рокки (добавляется один раз, в конец списка)
-if (!db.guideNote) {
-  db.guideNote = true;
-  db.notes.push({
-    id: db.nextId++,
-    title: 'Как устроен rock do',
-    body: 'Привет! Я Рокки. Вот как тут всё устроено.\n\nКАМЕНЬ — твои дела. Жёлтый плюс создаёт дело, тап по кружку — сделано, тап по карточке — редактор. Удержи карточку, чтобы переставить её или бросить в корзину.\n\nПовторы работают как будильник: выбери дни (например Пн, Ср, Пт) — после выполнения дело уйдёт в «Сделанные» и само вернётся в нужный день. О сроках напомню в Telegram.\n\nСДЕЛАННЫЕ живут под списком дел. Тап по записи — меню: вернуть на камень или удалить из истории.\n\nКАМУШКИ — заметки вроде этой. Первая строка станет заголовком. В редакторе есть отмена и возврат. Удержи камушек и наведи на другой — они поменяются местами.\n\nРЕЧКА — раз в день брось камушек и получи историю-совет. Я перебираюсь по реке утром, днём и ночью — заходи посмотреть.\n\nПРОФИЛЬ — настройки и Гора сделанного: сегодня, неделя, всего.\n\nМаленький шаг сегодня — большая гора завтра.',
-    at: Date.now() - 2 * 86400e3,
-    pos: (db.notes.length ? Math.max(...db.notes.map((n) => n.pos)) : 0) + 1,
+'use strict';
+/* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
+   поэтому после правок достаточно поднять её здесь. */
+const APP_VERSION = '1.2.0';
+const $ = (id) => document.getElementById(id);
+const DAY = 86400e3;
+
+/* ===================== данные ===================== */
+// Ключ и формат не менять: в localStorage лежат дела и заметки пользователя.
+const STORE = 'rockdo-demo';
+const GUIDE = 'Привет! Я Рокки. Вот как тут всё устроено.\n\nКАМЕНЬ — твои дела. Жёлтый плюс создаёт дело, тап по кружку — сделано, тап по карточке — редактор. Удержи карточку, чтобы переставить её или бросить в корзину.\n\nПовторы работают как будильник: выбери дни (например Пн, Ср, Пт) — после выполнения дело уйдёт в «Сделанные» и само вернётся в нужный день. О сроках напомню в Telegram.\n\nСДЕЛАННЫЕ живут под списком дел. Тап по записи — меню: вернуть на камень или удалить из истории. Тап по галочке — сразу вернуть.\n\nКАМУШКИ — заметки вроде этой. Первая строка станет заголовком. В редакторе есть отмена и возврат. Удержи камушек и наведи на другой — они поменяются местами.\n\nРЕЧКА — раз в день брось камушек и получи историю-совет. Я перебираюсь по реке утром, днём и ночью — заходи посмотреть.\n\nПРОФИЛЬ — настройки и Гора сделанного: сегодня, неделя, всего.\n\nМаленький шаг сегодня — большая гора завтра.';
+const todayAt = (h, m) => new Date().setHours(h, m, 0, 0);
+
+function seedDb() {
+  const now = Date.now();
+  return {
+    tasks: [
+      { id: 1, title: 'Прочитать 20 страниц', due: todayAt(19, 0), rep: 'never', pos: -1 },
+      { id: 2, title: 'Тренировка', due: todayAt(19, 0), rep: 'daily', pos: -2 },
+      { id: 3, title: 'Позвонить маме', due: null, rep: 'never', pos: -3 },
+      { id: 4, title: 'Учить английский 15 мин', due: todayAt(10, 0) + DAY, rep: 'never', pos: -4 },
+    ],
+    notes: [
+      { id: 2, title: 'Цитата', body: 'Дисциплина — это мост между целями и достижениями.', at: now - DAY, pos: 0 },
+      { id: 1, title: 'Идея для проекта', body: 'Сервис, который помогает людям сохранять фокус на важном...', at: now - 3600e3, pos: 1 },
+      { id: 3, title: 'Как устроен rock do', body: GUIDE, at: now - 2 * DAY, pos: 2 },
+    ],
+    done: [], river: null, nextId: 100, guideNote: true, seedOrder: true,
+  };
+}
+function loadDb() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(STORE)); } catch (e) { /* нет доступа к хранилищу — работаем в памяти */ }
+  if (!d) return seedDb();
+  d.tasks = d.tasks || []; d.notes = d.notes || []; d.done = d.done || [];
+  d.tasks.forEach((t) => { if (t.pos === undefined) t.pos = -t.id; });
+  d.notes.forEach((n) => { if (n.pos === undefined) n.pos = -n.at; });
+  return d;
+}
+const db = loadDb();
+function save() { try { localStorage.setItem(STORE, JSON.stringify(db)); } catch (e) { /* то же */ } }
+const newId = () => db.nextId++;
+const topPos = (arr) => (arr.length ? Math.min(...arr.map((x) => x.pos)) - 1 : 0); // новые — сверху
+const byPos = (arr) => [...arr].sort((a, b) => a.pos - b.pos);
+
+/* ===================== повторы ===================== */
+// never | daily | weekly | monthly | days:1,3,5 (дни недели, 1 = Пн)
+const DAY_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const isoDay = (d) => ((d.getDay() + 6) % 7) + 1;
+const repDays = (rule) => (rule && rule.startsWith('days:') ? rule.slice(5).split(',').map(Number) : []);
+const isRepeating = (t) => t.rep && t.rep !== 'never' && t.due;
+function repLabel(rule) {
+  const named = { daily: 'Каждый день', weekly: 'Каждую неделю', monthly: 'Каждый месяц' };
+  if (named[rule]) return named[rule];
+  const ds = repDays(rule).sort((a, b) => a - b);
+  if (ds.length === 7) return 'Каждый день';
+  return ds.length ? ds.map((d) => DAY_SHORT[d - 1]).join(', ') : 'Никогда';
+}
+// следующий раз после max(срок, сейчас), время суток сохраняется;
+// mday — исходное число месяца, чтобы после февраля вернуться к 31-му
+function nextOcc(due, rule, now, mday) {
+  const base = Math.max(due, now);
+  const next = new Date(due);
+  if (rule === 'monthly') {
+    const day = mday || next.getDate();
+    for (let k = 1; next.getTime() <= base; k++) {
+      const d = new Date(due); d.setDate(1); d.setMonth(d.getMonth() + k);
+      d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+      next.setTime(d.getTime());
+    }
+    return next.getTime();
+  }
+  const days = repDays(rule);
+  do next.setDate(next.getDate() + (rule === 'weekly' ? 7 : 1));
+  while (next.getTime() <= base || (days.length && !days.includes(isoDay(next))));
+  return next.getTime();
+}
+
+/* ===================== форматирование ===================== */
+const timeStr = (d) => d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+const shortDate = (d) => d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' });
+const stamp = (ms, month = 'short') => new Date(ms).toLocaleString('ru-RU', { day: 'numeric', month, hour: '2-digit', minute: '2-digit' });
+const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+function fmtDue(due) {
+  if (!due) return 'Без срока';
+  if (due < Date.now()) return 'пропущено';
+  const d = new Date(due);
+  if (sameDay(due, Date.now())) return 'Сегодня ' + timeStr(d);
+  if (sameDay(due, Date.now() + DAY)) return 'Завтра ' + timeStr(d);
+  return shortDate(d) + ' ' + timeStr(d);
+}
+const plural = (n, f) => f[n % 10 === 1 && n % 100 !== 11 ? 0 : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 1 : 2];
+
+/* ===================== каркас: экраны, окна, сообщения ===================== */
+let current = 'rock';
+function go(s) {
+  current = s;
+  document.querySelectorAll('.screen').forEach((e) => e.classList.toggle('on', e.id === 's-' + s));
+  document.querySelectorAll('.nav [data-s]').forEach((b) => b.classList.toggle('active', b.dataset.s === s));
+  if (s === 'profile') renderStats();
+  if (s === 'river') renderRiver(); // локация зависит от времени
+}
+function plusAction() { current === 'notes' ? openNote(null) : openTaskEditor(null); }
+const openOverlay = (id) => $(id).classList.add('on');
+const closeOverlay = (id) => $(id).classList.remove('on');
+const openSheet = (id) => $(id).classList.add('on');
+const closeSheet = (id) => $(id).classList.remove('on');
+
+let toastTimer;
+function toast(text, withRock) {
+  $('toast-text').textContent = text;
+  $('toast-img').style.display = withRock ? 'block' : 'none';
+  $('toast').classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('toast').classList.remove('on'), 2600);
+}
+
+// удаление с возможностью отменить
+let lastDeleted = null, snackTimer;
+function removeWithUndo(kind, id, text) {
+  const list = db[kind];
+  const item = list.find((x) => x.id === id);
+  if (!item) return;
+  db[kind] = list.filter((x) => x !== item);
+  lastDeleted = { kind, item };
+  save(); renderAll();
+  $('snack-text').textContent = text;
+  $('snack').classList.add('on');
+  clearTimeout(snackTimer);
+  snackTimer = setTimeout(hideSnack, 5000);
+}
+function hideSnack() { $('snack').classList.remove('on'); lastDeleted = null; }
+function undoDelete() {
+  if (!lastDeleted) return;
+  db[lastDeleted.kind].push(lastDeleted.item);
+  save(); renderAll(); hideSnack();
+}
+
+/* ===================== дела ===================== */
+// выполненный повтор не висит в списке до дня следующего раза
+const visibleTask = (t) => !isRepeating(t) || t.due <= Date.now() || sameDay(t.due, Date.now());
+function renderTasks() {
+  const list = $('task-list');
+  const ts = byPos(db.tasks).filter(visibleTask);
+  $('task-count').textContent = ts.length;
+  list.innerHTML = ts.length ? ts.map((t) => `
+    <div class="card task" id="task-${t.id}" onpointerdown="pressStart(event,${t.id},'task')" oncontextmenu="return false">
+      <div class="hit" onclick="if(!suppressClick)completeTask(${t.id})"><div class="checkbox" id="cb-${t.id}"></div></div>
+      <div class="tt" onclick="if(!suppressClick)openTaskEditor(${t.id})"><b></b></div>
+      ${t.due ? `<span class="due" onclick="if(!suppressClick)openTaskEditor(${t.id})">${fmtDue(t.due)}</span>` : ''}
+    </div>`).join('')
+    : '<div class="empty"><img src="img/rock-sleep.webp" alt=""><div>Пока камень свободен.<br>Положи на него первое дело.</div></div>';
+  ts.forEach((t) => { list.querySelector(`#task-${t.id} b`).textContent = t.title; });
+}
+
+function completeTask(id) {
+  const t = db.tasks.find((x) => x.id === id);
+  const card = $('task-' + id);
+  if (!t || !card || card.classList.contains('done')) return; // повторный тап во время анимации
+  haptic('success');
+  $('cb-' + id).classList.add('on');
+  $('cb-' + id).textContent = '✓';
+  card.classList.add('done');
+  setTimeout(() => {
+    if (isRepeating(t)) { // этот раз засчитан, дело ждёт следующего
+      db.done.push({ id: newId(), title: t.title, at: Date.now(), fromRepeat: true, taskId: t.id, prevDue: t.due, rep: t.rep });
+      t.due = nextOcc(t.due, t.rep, Date.now(), t.mday);
+      toast('Сегодняшний раз засчитан! Следующая — ' + fmtDue(t.due) + '.', true);
+    } else {
+      db.done.push({ id: newId(), title: t.title, at: Date.now(), fromRepeat: false });
+      db.tasks = db.tasks.filter((x) => x !== t);
+      toast('Готово! Камень гордится тобой.', true);
+    }
+    save(); renderTasks(); renderDone();
+  }, 400);
+}
+
+/* сделанные: повторы сверху, показываем последние 30, счётчик — полный */
+function renderDone() {
+  const all = db.done.filter((d) => d.title); // старые записи без названия идут только в статистику
+  const items = [...all].sort((a, b) => (b.fromRepeat ? 1 : 0) - (a.fromRepeat ? 1 : 0) || b.at - a.at).slice(0, 30);
+  const sec = $('done-list');
+  sec.innerHTML = items.length ? `<div class="done-h">Сделанные <b>${all.length}</b></div>` + items.map((d) => `
+    <div class="done-wrap" id="done-${d.id}" onpointerdown="pressStart(event,${d.id},'done')"
+         onclick="if(!suppressClick)openDoneSheet(${d.id})" oncontextmenu="return false">
+      <div class="card done-card ${d.fromRepeat ? 'rep' : ''}">
+        <div class="hit" onclick="event.stopPropagation();if(!suppressClick)restoreDone(${d.id})"><div class="checkbox on">✓</div></div>
+        <div class="dt"><b></b><span>${d.fromRepeat ? 'Следующая: ' + fmtDue(nextDueOf(d)) : stamp(d.at)}</span></div>
+      </div>
+    </div>`).join('') : '';
+  items.forEach((d) => { sec.querySelector(`#done-${d.id} b`).textContent = d.title; });
+}
+const nextDueOf = (d) => { const src = db.tasks.find((x) => x.id === d.taskId); return src ? src.due : d.prevDue; };
+
+function restoreDone(id) {
+  const d = db.done.find((x) => x.id === id);
+  if (!d) return;
+  db.done = db.done.filter((x) => x !== d);
+  const src = d.fromRepeat && db.tasks.find((x) => x.id === d.taskId);
+  if (src) src.due = d.prevDue; // отмена этого выполнения: срок откатывается
+  else db.tasks.push({ id: newId(), title: d.title, due: d.fromRepeat ? d.prevDue : null, rep: d.fromRepeat ? d.rep : 'never', pos: topPos(db.tasks) });
+  toast(d.fromRepeat ? 'Выполнение отменено — задача снова на камне' : 'Задача вернулась на камень');
+  save(); renderAll();
+}
+const deleteDone = (id) => removeWithUndo('done', id, 'Удалено из истории');
+
+let sheetDoneId = null;
+function openDoneSheet(id) {
+  const d = db.done.find((x) => x.id === id);
+  if (!d) return;
+  sheetDoneId = id;
+  $('ds-title').textContent = d.title;
+  $('ds-date').textContent = 'Сделано ' + stamp(d.at) +
+    (d.fromRepeat ? '\nПовторяется: ' + repLabel(d.rep) + '\nСледующая: ' + fmtDue(nextDueOf(d)) : '');
+  $('ds-restore').textContent = d.fromRepeat ? '↩ Вернуть это выполнение' : '↩ Вернуть на камень';
+  openSheet('done-sheet');
+}
+
+/* окно дела */
+let editId = null, pickDue = null, pickRep = 'never';
+// scrollHeight не включает рамку, а box-sizing — border-box: добавляем её, иначе текст подрезается
+function autoGrow(el) { el.style.height = 'auto'; el.style.height = (el.scrollHeight + el.offsetHeight - el.clientHeight) + 'px'; }
+function onTitleInput() { $('save-btn').disabled = !$('t-title').value.trim(); autoGrow($('t-title')); }
+function openTaskEditor(id) {
+  const t = id ? db.tasks.find((x) => x.id === id) : null;
+  editId = t ? t.id : null;
+  pickDue = t ? t.due : null;
+  pickRep = t ? t.rep : 'never';
+  $('te-title').textContent = t ? 'Дело' : 'Новое дело';
+  $('t-title').value = t ? t.title : '';
+  $('save-btn').textContent = t ? 'Сохранить' : 'Положить';
+  $('save-btn').disabled = !t;
+  $('del-btn').style.display = t ? 'block' : 'none';
+  updateDueLabel();
+  openOverlay('o-task');
+  requestAnimationFrame(() => autoGrow($('t-title')));
+  if (!t) setTimeout(() => $('t-title').focus(), 250);
+}
+function updateDueLabel() {
+  $('t-due-label').textContent = fmtDue(pickDue) + (pickRep !== 'never' ? ' · ' + repLabel(pickRep) : '');
+}
+function saveTask() {
+  const title = $('t-title').value.trim().replace(/\s+/g, ' ');
+  if (!title) return;
+  const fields = { title, due: pickDue, rep: pickDue ? pickRep : 'never', mday: pickDue ? new Date(pickDue).getDate() : null };
+  const t = editId && db.tasks.find((x) => x.id === editId);
+  if (t) Object.assign(t, fields);
+  else db.tasks.push({ id: newId(), ...fields, pos: topPos(db.tasks) });
+  toast(t ? 'Камень запомнил изменения' : 'Камень запомнил. Дело на камне!');
+  save(); renderAll(); closeOverlay('o-task'); go('rock');
+}
+function deleteTask() {
+  closeOverlay('o-task');
+  removeWithUndo('tasks', editId, 'Задача удалена');
+}
+
+/* ===================== напоминание: колёса ===================== */
+const ITEM_H = 43;
+// wrap: колесо закольцовано — много копий списка и незаметный прыжок на целый период у края
+function wheelInit(el, items, selIdx, onSel, wrap) {
+  const len = items.length;
+  const reps = wrap ? Math.max(7, Math.ceil(900 / len) | 1) : 1; // нечётное число копий
+  const mid = Math.floor(reps / 2), period = len * ITEM_H;
+  el.innerHTML = '<div class="pad"></div>' +
+    Array.from({ length: reps * len }, (_, i) => `<div class="item" data-i="${i}">${items[i % len]}</div>`).join('') +
+    '<div class="pad"></div>';
+  const cells = el.querySelectorAll('.item');
+  const apply = (gi) => {
+    const li = gi % len;
+    cells.forEach((e) => e.classList.toggle('sel', e.dataset.i % len === li));
+    onSel(li);
+  };
+  el.onscroll = () => {
+    if (wrap && (el.scrollTop < 2 * period || el.scrollTop > (reps - 2) * period)) el.scrollTop = mid * period + (el.scrollTop % period);
+    clearTimeout(el._t);
+    el._t = setTimeout(() => apply(Math.max(0, Math.min(cells.length - 1, Math.round(el.scrollTop / ITEM_H)))), 90);
+  };
+  cells.forEach((e) => { e.onclick = () => { el.scrollTop = e.dataset.i * ITEM_H; apply(+e.dataset.i); }; });
+  const start = mid * len + selIdx;
+  requestAnimationFrame(() => { el.scrollTop = start * ITEM_H; apply(start); });
+}
+const DAYS_PAST = 180, DAYS_FUT = 365;
+let pDay = 0, pHour = 10, pMin = 0, repBefore = 'never';
+function openPicker() {
+  repBefore = pickRep; // ✕ отменяет повтор, выбранный в этом окне
+  const init = new Date(pickDue || todayAt(10, 0) + DAY);
+  const today = new Date().setHours(0, 0, 0, 0);
+  const days = Array.from({ length: DAYS_PAST + DAYS_FUT + 1 }, (_, k) => {
+    const i = k - DAYS_PAST, d = new Date(today); d.setDate(d.getDate() + i);
+    return i === 0 ? 'Сегодня' : shortDate(d);
   });
-  save();
+  pDay = Math.max(-DAYS_PAST, Math.min(DAYS_FUT, Math.round((new Date(init).setHours(0, 0, 0, 0) - today) / DAY)));
+  pHour = init.getHours(); pMin = init.getMinutes();
+  const two = (n) => String(n).padStart(2, '0');
+  wheelInit($('w-day'), days, pDay + DAYS_PAST, (i) => { pDay = i - DAYS_PAST; pickerSummary(); });
+  wheelInit($('w-hour'), Array.from({ length: 24 }, (_, i) => two(i)), pHour, (i) => { pHour = i; pickerSummary(); }, true);
+  wheelInit($('w-min'), Array.from({ length: 60 }, (_, i) => two(i)), pMin, (i) => { pMin = i; pickerSummary(); }, true);
+  renderRep(); pickerSummary();
+  openOverlay('o-picker');
 }
-// порядок стартовых камушков: Цитата, Идея, гид (разовая миграция)
-if (!db.seedOrder) {
-  db.seedOrder = true;
-  const byId = (id) => db.notes.find((n) => n.id === id);
-  if (byId(2)) byId(2).pos = -3; // Цитата
-  if (byId(1)) byId(1).pos = -2; // Идея для проекта
-  const g = db.notes.find((n) => n.title === 'Как устроен rock do');
-  if (g) g.pos = -1;
-  save();
+function pickerDate() {
+  const d = new Date(); d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + pDay); d.setHours(pHour, pMin);
+  return d;
+}
+function pickerSummary() { const d = pickerDate(); $('p-summary').textContent = shortDate(d) + ' ' + timeStr(d); }
+function pickOk() {
+  let d = pickerDate();
+  if (d.getTime() <= Date.now()) { // в прошлое не ставим
+    d = new Date(Date.now() + 3600e3); d.setSeconds(0, 0);
+    toast('Это время уже прошло — выбрал ближайшее.');
+  }
+  const days = repDays(pickRep); // первый раз — в ближайший из выбранных дней
+  while (days.length && !days.includes(isoDay(d))) d.setDate(d.getDate() + 1);
+  pickDue = d.getTime();
+  updateDueLabel(); closeOverlay('o-picker');
+}
+function cancelPicker() { pickRep = repBefore; closeOverlay('o-picker'); }
+function pickNoDue() { pickDue = null; pickRep = 'never'; updateDueLabel(); closeOverlay('o-picker'); }
+function renderRep() {
+  $('p-rep-label').textContent = repLabel(pickRep);
+  const opts = { never: 'Никогда', daily: 'Каждый день', weekly: 'Каждую неделю', monthly: 'Каждый месяц' };
+  $('rep-opts').innerHTML = Object.entries(opts).map(([v, l]) =>
+    `<div class="opt ${v === pickRep ? 'sel' : ''}" onclick="setRep('${v}')">${l}</div>`).join('');
+  const cur = repDays(pickRep);
+  $('days-row').innerHTML = DAY_SHORT.map((n, i) =>
+    `<div class="day-chip ${cur.includes(i + 1) ? 'sel' : ''}" onclick="toggleDay(${i + 1})">${n}</div>`).join('');
+}
+function setRep(v) { pickRep = v; renderRep(); closeSheet('rep-sheet'); }
+function toggleDay(d) {
+  const cur = repDays(pickRep);
+  const next = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => a - b);
+  pickRep = next.length ? 'days:' + next.join(',') : 'never';
+  renderRep();
 }
 
-function todayAt(h, m) { const d = new Date(); d.setHours(h, m, 0, 0); return d.getTime(); }
-function tomorrowAt(h, m) { return todayAt(h, m) + 86400e3; }
+/* ===================== камушки ===================== */
+// примерная высота карточки, чтобы раскладывать по колонкам: заголовок до 2 строк, текст до 4
+const estHeight = (title, preview) => 46 + Math.min(2, Math.ceil(title.length / 20)) * 19 + (preview ? Math.min(4, Math.ceil(preview.length / 26)) * 18 : 0);
+function renderNotes() {
+  const list = $('note-list');
+  const ns = byPos(db.notes);
+  if (!ns.length) {
+    list.innerHTML = '<div class="empty"><img src="img/rock-notes.webp" alt=""><div>Запиши первую мысль — нажми «+».</div></div>';
+    return;
+  }
+  list.innerHTML = '<div class="ncol"></div><div class="ncol"></div>';
+  const cols = list.querySelectorAll('.ncol'), h = [0, 0];
+  ns.forEach((n) => {
+    // текст начинается с заголовка (автозаголовок) — в превью показываем только остаток
+    let preview = n.body || '';
+    const head = n.title.replace(/…$/, '');
+    if (preview.startsWith(head)) preview = preview.slice(head.length).replace(/^[\s.…]+/, '');
+    const c = document.createElement('div');
+    c.className = 'note-card'; c.id = 'note-' + n.id;
+    c.onclick = () => { if (!suppressClick) openNote(n.id); };
+    c.onpointerdown = (e) => pressStart(e, n.id, 'note');
+    c.oncontextmenu = (e) => e.preventDefault();
+    c.innerHTML = `<div class="note-title"></div>${preview ? '<div class="note-body"></div>' : ''}<div class="note-date">${stamp(n.at)}</div>`;
+    c.querySelector('.note-title').textContent = n.title;
+    if (preview) c.querySelector('.note-body').textContent = preview;
+    const col = h[0] <= h[1] ? 0 : 1; // в более короткую колонку
+    cols[col].appendChild(c);
+    h[col] += estHeight(n.title, preview);
+  });
+}
 
-/* советы-истории Рокки (многострочные) */
+/* редактор камушка с отменой и возвратом */
+let noteId = null, hist = [], histIdx = 0, histTimer;
+function openNote(id) {
+  const n = id ? db.notes.find((x) => x.id === id) : null;
+  noteId = n ? n.id : null;
+  $('n-title').value = n ? n.title : '';
+  $('n-body').value = n ? n.body : '';
+  $('ne-date').textContent = stamp(n ? n.at : Date.now(), 'long');
+  hist = [{ t: $('n-title').value, b: $('n-body').value }]; histIdx = 0;
+  noteMeta();
+  openOverlay('o-note');
+  if (!n) setTimeout(() => $('n-title').focus(), 250);
+}
+function noteMeta() {
+  const n = $('n-body').value.length;
+  $('ne-count').textContent = n + ' ' + plural(n, ['символ', 'символа', 'символов']);
+  $('undo-btn').disabled = histIdx <= 0;
+  $('redo-btn').disabled = histIdx >= hist.length - 1;
+}
+function noteChanged() {
+  noteMeta();
+  clearTimeout(histTimer);
+  histTimer = setTimeout(() => { // шаг истории — пауза в наборе
+    const s = { t: $('n-title').value, b: $('n-body').value }, last = hist[histIdx];
+    if (last.t === s.t && last.b === s.b) return;
+    hist = hist.slice(0, histIdx + 1); hist.push(s); histIdx++;
+    noteMeta();
+  }, 280);
+}
+function noteStep(delta) {
+  clearTimeout(histTimer);
+  histIdx = Math.max(0, Math.min(hist.length - 1, histIdx + delta));
+  $('n-title').value = hist[histIdx].t; $('n-body').value = hist[histIdx].b;
+  noteMeta();
+}
+const noteUndo = () => noteStep(-1), noteRedo = () => noteStep(1);
+function saveNote() {
+  let title = $('n-title').value.trim();
+  const body = $('n-body').value.trim();
+  closeOverlay('o-note');
+  if (!title && !body) return; // пустой не сохраняем
+  if (!title) { const first = body.split('\n')[0].trim(); title = first.length > 40 ? first.slice(0, 40) + '…' : first; }
+  const n = noteId && db.notes.find((x) => x.id === noteId);
+  if (n) Object.assign(n, { title, body });
+  else db.notes.push({ id: newId(), title, body, at: Date.now(), pos: topPos(db.notes) });
+  save(); renderNotes();
+}
+
+/* ===================== речка ===================== */
 const ADVICES = [
   'Рокки увидел лёгкую задачу.\nЗадача блестела как мокрый камень.\nРокки ткнул палкой. Внутри был дракон.\nТеперь Рокки сначала смотрит, потом обещает.',
   'Рокки нёс десять камушков сразу.\nДонёс ноль.\nПотом нёс по одному — донёс все.\nСегодня неси по одному.',
@@ -617,611 +867,98 @@ const ADVICES = [
   'У Рокки не получилось с первого раза.\nИ со второго.\nНа третий раз камушек поскакал по воде.\nЭто называется тренировка, а не неудача.',
   'Рокки заметил, что устал.\nСделал паузу на три вдоха.\nРека за это время не убежала.\nПауза — тоже часть пути.',
 ];
-
-/* локации Рокки по времени суток */
-/* pos — точка фокуса фона: 'X% Y%' (0% — левый/верхний край, 100% — правый/нижний).
-   Подбирай на глаз: главное, чтобы Рокки попадал в видимую часть кадра. */
+// pos — какая часть фона видна на узком экране: 'X% Y%'
 const RIVER_SLOTS = [
-  { from: 5,  to: 10, name: 'Утро',         loc: 'Исток',   title: 'Рокки у истока',    mood: 'Начни с самого простого шага.',        img: 'river-morning', icon: 'sun',  pos: '38% 50%' },
-  { from: 10, to: 12, name: 'Позднее утро', loc: 'Тропа',   title: 'Рокки на тропе',    mood: 'Самое время разогнаться.',             img: 'river-late',    icon: 'sun',  pos: '60% 50%' },
-  { from: 12, to: 17, name: 'День',         loc: 'Перекат', title: 'Рокки на перекате', mood: 'Сейчас лучше держать направление.',    img: 'river-day',     icon: 'sun',  pos: '50% 40%' },
-  { from: 17, to: 22, name: 'Вечер',        loc: 'Берег',   title: 'Рокки на берегу',   mood: 'Заверши то, что почти готово.',        img: 'river-evening', icon: 'sun',  pos: '58% 55%' },
-  { from: 22, to: 5,  name: 'Ночь',         loc: 'Ночлег',  title: 'Рокки на ночлеге',  mood: 'Реку не торопят. Отдыхай.',            img: 'river-night',   icon: 'moon', pos: '25% 65%' },
+  { from: 5,  to: 10, name: 'Утро',         loc: 'Исток',   title: 'Рокки у истока',    mood: 'Начни с самого простого шага.',     img: 'river-morning', moon: false, pos: '38% 50%' },
+  { from: 10, to: 12, name: 'Позднее утро', loc: 'Тропа',   title: 'Рокки на тропе',    mood: 'Самое время разогнаться.',          img: 'river-late',    moon: false, pos: '60% 50%' },
+  { from: 12, to: 17, name: 'День',         loc: 'Перекат', title: 'Рокки на перекате', mood: 'Сейчас лучше держать направление.', img: 'river-day',     moon: false, pos: '50% 40%' },
+  { from: 17, to: 22, name: 'Вечер',        loc: 'Берег',   title: 'Рокки на берегу',   mood: 'Заверши то, что почти готово.',     img: 'river-evening', moon: false, pos: '58% 55%' },
+  { from: 22, to: 5,  name: 'Ночь',         loc: 'Ночлег',  title: 'Рокки на ночлеге',  mood: 'Реку не торопят. Отдыхай.',         img: 'river-night',   moon: true,  pos: '25% 65%' },
 ];
-const riverSlot = (h = new Date().getHours()) =>
-  RIVER_SLOTS.find((s) => s.from <= s.to ? (h >= s.from && h < s.to) : (h >= s.from || h < s.to));
 const SUN_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M18 6l-1.4 1.4M7.4 16.6 6 18"/></svg>';
 const MOON_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M20 13A8 8 0 1 1 11 4a6.5 6.5 0 0 0 9 9Z"/></svg>';
-/* повтор: never | daily | weekly | monthly | days:1,3,5 (ISO дни недели, 1=Пн) */
-const DAY_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-function repLabel(rule) {
-  if (!rule || rule === 'never') return 'Никогда';
-  if (rule === 'daily') return 'Каждый день';
-  if (rule === 'weekly') return 'Каждую неделю';
-  if (rule === 'monthly') return 'Каждый месяц';
-  if (rule.startsWith('days:')) {
-    const ds = rule.slice(5).split(',').map(Number).sort((a, b) => a - b);
-    if (ds.length === 7) return 'Каждый день';
-    return ds.map((d) => DAY_SHORT[d - 1]).join(', ');
-  }
-  return 'Никогда';
-}
-// следующее срабатывание после max(due, now), время суток сохраняется
-// mday — исходное число месяца для monthly (чтобы после февраля вернуться к 31-му)
-function nextOcc(dueMs, rule, nowMs, mday) {
-  const base = Math.max(dueMs, nowMs);
-  const next = new Date(dueMs);
-  if (rule.startsWith('days:')) {
-    const set = rule.slice(5).split(',').map(Number);
-    do { next.setDate(next.getDate() + 1); }
-    while (next.getTime() <= base || !set.includes(((next.getDay() + 6) % 7) + 1));
-    return next.getTime();
-  }
-  if (rule === 'monthly') { // от исходного числа: 31 янв -> 28/29 фев -> 31 мар
-    const day = mday || next.getDate();
-    for (let k = 1; next.getTime() <= base; k++) {
-      const d = new Date(dueMs); d.setDate(1); d.setMonth(d.getMonth() + k);
-      d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
-      next.setTime(d.getTime());
-    }
-    return next.getTime();
-  }
-  while (next.getTime() <= base) next.setDate(next.getDate() + (rule === 'weekly' ? 7 : 1));
-  return next.getTime();
-}
-
-/* ================= навигация ================= */
-function go(s) {
-  document.querySelectorAll('.screen').forEach((e) => e.classList.remove('on'));
-  document.getElementById('s-' + s).classList.add('on');
-  document.querySelectorAll('.nav [data-s]').forEach((b) => b.classList.toggle('active', b.dataset.s === s));
-  current = s;
-  if (s === 'profile') renderStats();
-  if (s === 'river') renderRiver(); // локация может смениться по времени
-}
-let current = 'rock';
-function plusAction() {
-  // оранжевый «+»: на экране заметок — новая заметка, везде ещё — новая задача
-  if (current === 'notes') openNote(null);
-  else openTaskEditor();
-}
-function closeOverlay(id) { document.getElementById(id).classList.remove('on'); }
-
-/* ================= toast ================= */
-let toastTimer;
-/* happy: true — тост со счастливым Рокки, 'sad' — с грустным, пусто — без картинки */
-function toast(text, happy) {
-  const img = document.getElementById('toast-img');
-  img.src = happy === 'sad' ? 'img/rock-sad.webp' : 'img/rock-happy.webp';
-  clearTimeout(toastTimer);
-  document.getElementById('toast-text').textContent = text;
-  document.getElementById('toast-img').style.display = happy ? 'block' : 'none';
-  toastEl.classList.add('on');
-  toastTimer = setTimeout(() => toastEl.classList.remove('on'), 2600);
-}
-
-/* ================= задачи ================= */
-function fmtDue(due) {
-  if (!due) return 'Без срока';
-  const d = new Date(due), now = new Date();
-  const t = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  if (due < Date.now()) return 'пропущено';
-  if (d.toDateString() === now.toDateString()) return 'Сегодня ' + t;
-  const tm = new Date(now); tm.setDate(tm.getDate() + 1);
-  if (d.toDateString() === tm.toDateString()) return 'Завтра ' + t;
-  return d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' + t;
-}
-
-// выполненный повтор не висит в списке: вернётся в день следующего цикла
-const dueTodayOrPast = (due) => {
-  const d = new Date(due), n = new Date();
-  return due <= n.getTime() || d.toDateString() === n.toDateString();
-};
-function renderTasks() {
-  const list = document.getElementById('task-list');
-  const ts = [...db.tasks].sort((a, b) => a.pos - b.pos)
-    .filter((t) => !(t.rep && t.rep !== 'never' && t.due && !dueTodayOrPast(t.due)));
-  document.getElementById('task-count').textContent = ts.length;
-  if (!ts.length) {
-    list.innerHTML = `<div class="empty"><img src="img/rock-sleep.webp"><div>Пока камень свободен.<br>Положи на него первое дело.</div></div>`;
-    renderDone();
-    return;
-  }
-  list.innerHTML = ts.map((t) => `
-    <div class="card task" id="task-${t.id}" onpointerdown="pressStart(event,${t.id},'task')" oncontextmenu="return false">
-      <div class="hit" onclick="if(!suppressClick)completeTask(${t.id})"><div class="checkbox" id="cb-${t.id}"></div></div>
-      <div class="tt" onclick="if(!suppressClick)openTaskEditor(${t.id})"><b></b></div>
-      ${t.due ? `<span class="due" onclick="if(!suppressClick)openTaskEditor(${t.id})">${fmtDue(t.due)}</span>` : ''}
-    </div>`).join('');
-  ts.forEach((t) => { document.querySelector(`#task-${t.id} b`).textContent = t.title; });
-  renderDone();
-}
-
-/* ===== сделанные: повторы сверху (чуть заметнее), вернуть / пересоздать ===== */
-function renderDone() {
-  const sec = document.getElementById('done-sec');
-  const all = db.done.filter((d) => d.title);
-  const items = all
-    .sort((a, b) => ((b.fromRepeat ? 1 : 0) - (a.fromRepeat ? 1 : 0)) || (b.at - a.at))
-    .slice(0, 30); // показываем последние 30, счётчик — полный
-  if (!items.length) { sec.innerHTML = ''; return; }
-  // в покое — никаких кнопок: удержание+корзина = удалить, тап = меню
-  sec.innerHTML = '<div class="done-h">Сделанные <b>' + all.length + '</b></div>' +
-    items.map((d) => {
-      const src = d.fromRepeat ? db.tasks.find((x) => x.id === d.taskId) : null;
-      const sub = d.fromRepeat
-        ? 'Следующая: ' + fmtDue(src ? src.due : d.prevDue)
-        : new Date(d.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-      return `
-      <div class="done-wrap" id="done-${d.id}" onpointerdown="pressStart(event,${d.id},'done')"
-           onclick="if(!suppressClick)openDoneSheet(${d.id})" oncontextmenu="return false">
-        <div class="card done-card ${d.fromRepeat ? 'rep' : ''}">
-          <div class="hit" onclick="event.stopPropagation();if(!suppressClick)restoreDone(${d.id})"><div class="checkbox on">✓</div></div>
-          <div class="dt"><b></b><span>${sub}</span></div>
-        </div>
-      </div>`;
-    }).join('');
-  sec.querySelectorAll('.done-card .dt b').forEach((el, i) => el.textContent = items[i].title);
-}
-
-function restoreDone(id) {
-  const d = db.done.find((x) => x.id === id);
-  if (!d) return;
-  if (d.fromRepeat) { // отмена сегодняшнего выполнения: срок откатывается
-    const src = db.tasks.find((x) => x.id === d.taskId);
-    if (src) src.due = d.prevDue;
-    else db.tasks.push({ id: db.nextId++, title: d.title, due: d.prevDue, rep: d.rep, pos: nextPos(db.tasks) });
-    db.done = db.done.filter((x) => x.id !== id);
-    toast('Выполнение отменено — задача снова на камне');
-  } else {
-    db.tasks.push({ id: db.nextId++, title: d.title, due: null, rep: 'never', pos: nextPos(db.tasks) });
-    db.done = db.done.filter((x) => x.id !== id);
-    toast('Задача вернулась на камень');
-  }
-  save(); renderTasks(); renderStats();
-}
-
-
-/* bottom sheet по тапу */
-let dsId = null;
-function openDoneSheet(id) {
-  const d = db.done.find((x) => x.id === id);
-  if (!d) return;
-  dsId = id;
-  document.getElementById('ds-title').textContent = d.title;
-  let info = 'Сделано ' + new Date(d.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-  if (d.fromRepeat) {
-    const src = db.tasks.find((x) => x.id === d.taskId);
-    info += '\nПовторяется: ' + repLabel(d.rep) +
-            '\nСледующая: ' + fmtDue(src ? src.due : d.prevDue);
-  }
-  document.getElementById('ds-date').textContent = info;
-  document.getElementById('ds-restore').textContent =
-    d.fromRepeat ? '↩ Вернуть это выполнение' : '↩ Вернуть на камень';
-  document.getElementById('doneSheet').classList.add('on');
-}
-function dsRestore() { restoreDone(dsId); doneSheet.classList.remove('on'); }
-function dsDelete() {
-  lastDeleted = { type: 'done', item: db.done.find((x) => x.id === dsId) };
-  db.done = db.done.filter((x) => x.id !== dsId);
-  save(); renderDone(); renderStats();
-  doneSheet.classList.remove('on');
-  showSnack('Удалено из истории');
-}
-
-function completeTask(id) {
-  const t = db.tasks.find((x) => x.id === id);
-  const card = document.getElementById('task-' + id);
-  if (!t || !card || card.classList.contains('done')) return; // двойной тап во время анимации
-  haptic('success');
-  document.getElementById('cb-' + id).classList.add('on');
-  document.getElementById('cb-' + id).textContent = '✓';
-  document.getElementById('task-' + id).classList.add('done');
-  const repeating = t.rep && t.rep !== 'never' && t.due;
-  setTimeout(() => {
-    if (repeating) {
-      // сегодняшний раз засчитан; задача уходит ждать следующего цикла
-      db.done.push({ id: db.nextId++, title: t.title, at: Date.now(), fromRepeat: true,
-                     taskId: t.id, prevDue: t.due, rep: t.rep });
-      t.due = nextOcc(t.due, t.rep, Date.now(), t.mday);
-      toast('Сегодняшний раз засчитан! Следующая — ' + fmtDue(t.due) + '.', true);
-    } else {
-      db.done.push({ id: db.nextId++, title: t.title, at: Date.now(), fromRepeat: false });
-      db.tasks = db.tasks.filter((x) => x.id !== id);
-      toast('Готово! Камень гордится тобой.', true);
-    }
-    save(); renderTasks();
-  }, 400);
-}
-
-/* редактор дела */
-// scrollHeight без рамки, а box-sizing — border-box: добавляем рамку, иначе текст подрезается
-function autoGrow(el) { el.style.height = 'auto'; el.style.height = (el.scrollHeight + el.offsetHeight - el.clientHeight) + 'px'; }
-let editId = null, pickDue = null, pickRep = 'never';
-function openTaskEditor(id) {
-  editId = id || null;
-  const t = id ? db.tasks.find((x) => x.id === id) : null;
-  document.getElementById('te-title').textContent = t ? 'Дело' : 'Новое дело';
-  const ti = document.getElementById('t-title');
-  ti.value = t ? t.title : '';
-  requestAnimationFrame(() => autoGrow(ti));
-  pickDue = t ? t.due : null; pickRep = t ? t.rep : 'never';
-  updateDueLabel();
-  saveBtn.disabled = !t;
-  saveBtn.textContent = t ? 'Сохранить' : 'Положить';
-  delBtn.style.display = t ? 'block' : 'none';
-  document.getElementById('o-task').classList.add('on');
-  if (!t) setTimeout(() => document.getElementById('t-title').focus(), 250);
-}
-function updateDueLabel() {
-  document.getElementById('t-due-label').textContent =
-    (pickDue ? fmtDue(pickDue) : 'Без срока') + (pickRep !== 'never' ? ' · ' + repLabel(pickRep) : '');
-}
-function saveTask() {
-  const title = document.getElementById('t-title').value.trim().replace(/\s+/g, ' ');
-  if (!title) return;
-  if (!pickDue) pickRep = 'never'; // повтор без срока не имеет смысла
-  const mday = pickDue ? new Date(pickDue).getDate() : null;
-  if (editId) {
-    const t = db.tasks.find((x) => x.id === editId);
-    Object.assign(t, { title, due: pickDue, rep: pickRep, mday });
-    toast('Камень запомнил изменения');
-  } else {
-    db.tasks.push({ id: db.nextId++, title, due: pickDue, rep: pickRep, mday, pos: nextPos(db.tasks) });
-    toast('Камень запомнил. Дело на камне!');
-  }
-  save(); renderTasks(); closeOverlay('o-task'); go('rock');
-}
-function deleteTask() {
-  db.tasks = db.tasks.filter((x) => x.id !== editId);
-  save(); renderTasks(); closeOverlay('o-task');
-  toast('Дело убрано с камня');
-}
-
-/* ================= пикер напоминания ================= */
-const ITEM_H = 43;
-/* wrap=true: список закольцован — копий с запасом, перецентровка прямо во время
-   прокрутки прыжком на целый период (визуально кадр в кадр, стыка нет) */
-function wheelInit(el, items, selIdx, onSel, wrap) {
-  const len = items.length;
-  const REP = wrap ? Math.max(7, Math.ceil(900 / len) | 1) : 1; // нечётное, >=900 строк запаса
-  const mid = Math.floor(REP / 2);
-  const all = [];
-  for (let r = 0; r < REP; r++) all.push(...items);
-  el.innerHTML = '<div class="pad"></div>' +
-    all.map((x, i) => `<div class="item" data-i="${i}">${x}</div>`).join('') +
-    '<div class="pad"></div>';
-  const period = len * ITEM_H;
-  const apply = (gi) => {
-    const li = ((gi % len) + len) % len;
-    el.querySelectorAll('.item').forEach((e) => e.classList.toggle('sel', (+e.dataset.i) % len === li));
-    onSel(li);
-  };
-  el.onscroll = () => {
-    if (wrap) { // близко к краю копий — мгновенный прыжок на тот же кадр в середину
-      const st = el.scrollTop;
-      if (st < 2 * period || st > (REP - 2) * period)
-        el.scrollTop = mid * period + (st % period);
-    }
-    clearTimeout(el._t);
-    el._t = setTimeout(() => {
-      const gi = Math.max(0, Math.min(all.length - 1, Math.round(el.scrollTop / ITEM_H)));
-      apply(gi);
-    }, 90);
-  };
-  el.querySelectorAll('.item').forEach((e) => e.onclick = () => {
-    const gi = +e.dataset.i;
-    el.scrollTop = gi * ITEM_H;
-    apply(gi);
-  });
-  const start = mid * len + selIdx;
-  requestAnimationFrame(() => { el.scrollTop = start * ITEM_H; apply(start); });
-}
-const DAYS_PAST = 180, DAYS_FUT = 365; // даты листаются в обе стороны
-let pDay = 0, pHour = 10, pMin = 0, repBefore = 'never';
-function openPicker() {
-  repBefore = pickRep; // ✕ откатывает повтор, выбранный в этом пикере
-  const init = pickDue ? new Date(pickDue) : new Date(tomorrowAt(10, 0));
-  const days = [], today = new Date(); today.setHours(0, 0, 0, 0);
-  for (let i = -DAYS_PAST; i <= DAYS_FUT; i++) {
-    const d = new Date(today); d.setDate(d.getDate() + i);
-    days.push(i === 0 ? 'Сегодня' : d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }));
-  }
-  pDay = Math.max(-DAYS_PAST, Math.min(DAYS_FUT,
-    Math.round((new Date(init).setHours(0, 0, 0, 0) - today) / 86400e3)));
-  pHour = init.getHours(); pMin = init.getMinutes();
-  wheelInit(document.getElementById('w-day'), days, pDay + DAYS_PAST, (i) => { pDay = i - DAYS_PAST; pickerSummary(); });
-  wheelInit(document.getElementById('w-hour'), [...Array(24)].map((_, i) => String(i).padStart(2, '0')), pHour, (i) => { pHour = i; pickerSummary(); }, true);
-  wheelInit(document.getElementById('w-min'), [...Array(60)].map((_, i) => String(i).padStart(2, '0')), pMin, (i) => { pMin = i; pickerSummary(); }, true);
-  document.getElementById('p-rep-label').textContent = repLabel(pickRep);
-  renderRepOpts(); pickerSummary();
-  document.getElementById('o-picker').classList.add('on');
-}
-function pickerDate() {
-  const d = new Date(); d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + pDay); d.setHours(pHour, pMin);
-  return d;
-}
-function pickerSummary() {
-  const d = pickerDate();
-  document.getElementById('p-summary').textContent =
-    d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' +
-    String(pHour).padStart(2, '0') + ':' + String(pMin).padStart(2, '0');
-}
-function pickOk() {
-  let d = pickerDate();
-  if (d.getTime() <= Date.now()) { // не в прошлое — по спеке
-    d = new Date(Date.now() + 3600e3); d.setSeconds(0, 0);
-    toast('Это время уже прошло — выбрал ближайшее.');
-  }
-  if (pickRep.startsWith('days:')) { // первый раз — в ближайший из выбранных дней
-    const set = pickRep.slice(5).split(',').map(Number);
-    while (!set.includes(((d.getDay() + 6) % 7) + 1)) d.setDate(d.getDate() + 1);
-  }
-  pickDue = d.getTime(); updateDueLabel(); closeOverlay('o-picker');
-}
-function cancelPicker() { pickRep = repBefore; closeOverlay('o-picker'); }
-function pickNoDue() { pickDue = null; pickRep = 'never'; updateDueLabel(); closeOverlay('o-picker'); }
-function renderRepOpts() {
-  const opts = { never: 'Никогда', daily: 'Каждый день', weekly: 'Каждую неделю', monthly: 'Каждый месяц' };
-  document.getElementById('rep-opts').innerHTML = Object.entries(opts).map(([v, l]) =>
-    `<div class="opt ${v === pickRep ? 'sel' : ''}" onclick="setRep('${v}')">${l}</div>`).join('');
-  // чипы дней недели (как будильник)
-  const cur = pickRep.startsWith('days:') ? pickRep.slice(5).split(',').map(Number) : [];
-  document.getElementById('days-row').innerHTML = DAY_SHORT.map((n, i) =>
-    `<div class="day-chip ${cur.includes(i + 1) ? 'sel' : ''}" onclick="toggleDay(${i + 1})">${n}</div>`).join('');
-}
-function setRep(v) {
-  pickRep = v;
-  document.getElementById('p-rep-label').textContent = repLabel(v);
-  renderRepOpts();
-  repModal.classList.remove('on');
-}
-function toggleDay(d) {
-  let cur = pickRep.startsWith('days:') ? pickRep.slice(5).split(',').map(Number) : [];
-  cur = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => a - b);
-  pickRep = cur.length ? 'days:' + cur.join(',') : 'never';
-  document.getElementById('p-rep-label').textContent = repLabel(pickRep);
-  renderRepOpts();
-}
-
-/* ================= заметки ================= */
-// оценка высоты карточки (границы: заголовок <=2 строк, превью <=4)
-function estH(title, preview) {
-  const tl = Math.min(2, Math.ceil(title.length / 20));
-  const pl = preview ? Math.min(4, Math.ceil(preview.length / 26)) : 0;
-  return 46 + tl * 19 + pl * 18;
-}
-function renderNotes() {
-  const list = document.getElementById('note-list');
-  const ns = [...db.notes].sort((a, b) => a.pos - b.pos); // ручной порядок, новые сверху
-  if (!ns.length) {
-    list.innerHTML = '<div class="empty"><img src="img/rock-notes.webp" alt=""><div>Запиши первую мысль — нажми «+».</div></div>';
-    return;
-  }
-  list.innerHTML = '<div class="ncol"></div><div class="ncol"></div>';
-  const cols = list.querySelectorAll('.ncol');
-  const h = [0, 0];
-  ns.forEach((n) => {
-    // не дублируем: если тело начинается с заголовка — показываем только остаток
-    // не дублируем: сравниваем без «…» на конце автозаголовка
-    let preview = n.body || '';
-    const t0 = n.title.replace(/…$/, '');
-    if (preview.startsWith(t0)) preview = preview.slice(t0.length).replace(/^[\s.…]+/, '');
-    const c = document.createElement('div');
-    c.className = 'note-card'; c.id = 'note-' + n.id;
-    c.onclick = () => { if (!suppressClick) openNote(n.id); };
-    c.onpointerdown = (e) => pressStart(e, n.id, 'note');
-    c.oncontextmenu = (e) => e.preventDefault();
-    c.innerHTML = `<div class="note-title"></div>${preview ? '<div class="note-body"></div>' : ''}
-      <div class="note-date">${new Date(n.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>`;
-    c.querySelector('.note-title').textContent = n.title;
-    if (preview) c.querySelector('.note-body').textContent = preview;
-    const i = h[0] <= h[1] ? 0 : 1; // в более короткую колонку
-    cols[i].appendChild(c);
-    h[i] += estH(n.title, preview);
-  });
-}
-/* --- полноэкранный редактор с undo/redo --- */
-let noteId = null;               // null = новая заметка
-let hist = [], histIdx = -1, histTimer = null;
-const nTitle = () => document.getElementById('n-title');
-const nBody = () => document.getElementById('n-body');
-
-const plural = (n, f) => f[n % 10 === 1 && n % 100 !== 11 ? 0 : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 1 : 2)];
-function neCount() {
-  const n = nBody().value.length;
-  document.getElementById('ne-count').textContent = n + ' ' + plural(n, ['символ', 'символа', 'символов']);
-}
-function histPush() {
-  clearTimeout(histTimer);
-  histTimer = setTimeout(() => {
-    const s = { t: nTitle().value, b: nBody().value };
-    const last = hist[histIdx];
-    if (last && last.t === s.t && last.b === s.b) return;
-    hist = hist.slice(0, histIdx + 1); hist.push(s); histIdx++;
-    histBtns();
-  }, 280);
-}
-function histApply() {
-  const s = hist[histIdx];
-  nTitle().value = s.t; nBody().value = s.b;
-  neCount(); histBtns();
-}
-function neUndo() { if (histIdx > 0) { histIdx--; histApply(); } }
-function neRedo() { if (histIdx < hist.length - 1) { histIdx++; histApply(); } }
-function histBtns() {
-  document.getElementById('undoBtn').disabled = histIdx <= 0;
-  document.getElementById('redoBtn').disabled = histIdx >= hist.length - 1;
-}
-
-function openNote(id) {
-  noteId = id || null;
-  const n = id ? db.notes.find((x) => x.id === id) : null;
-  nTitle().value = n ? n.title : '';
-  nBody().value = n ? n.body : '';
-  document.getElementById('ne-date').textContent = new Date(n ? n.at : Date.now())
-    .toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
-  hist = [{ t: nTitle().value, b: nBody().value }]; histIdx = 0;
-  neCount(); histBtns();
-  document.getElementById('o-note').classList.add('on');
-  if (!n) setTimeout(() => nTitle().focus(), 250);
-}
-function saveNote() {
-  let title = nTitle().value.trim();
-  const body = nBody().value.trim();
-  if (!title && !body) { closeOverlay('o-note'); return; } // пустую не сохраняем
-  if (!title) { // автозаголовок из первой строки
-    const first = body.split('\n')[0].trim();
-    title = first.length > 40 ? first.slice(0, 40) + '…' : first;
-  }
-  if (noteId) {
-    const n = db.notes.find((x) => x.id === noteId);
-    Object.assign(n, { title, body });
-  } else {
-    db.notes.push({ id: db.nextId++, title, body, at: Date.now(), pos: nextPos(db.notes) });
-  }
-  save(); renderNotes(); closeOverlay('o-note');
-}
-
-/* ================= речка ================= */
-function localDay() { return new Date().toLocaleDateString('sv'); }
+const localDay = () => new Date().toLocaleDateString('sv'); // ГГГГ-ММ-ДД по местному времени
 function renderRiver() {
-  const slot = riverSlot();
-  document.getElementById('rv-bg').style.backgroundImage = `url('img/${slot.img}.webp')`;
-  document.getElementById('rv-bg').style.backgroundPosition = slot.pos || 'center';
-  document.getElementById('rv-ico').innerHTML = slot.icon === 'moon' ? MOON_ICO : SUN_ICO;
-  document.getElementById('rv-chip-text').textContent = slot.name + ' • ' + slot.loc;
-  document.getElementById('rv-title').textContent = slot.title;
-  const r = db.river;
-  const today = r && r.date === localDay();
-  // до броска — настроение локации, после — история дня
-  document.getElementById('rv-text').textContent = today ? r.text : slot.mood;
-  const btn = document.getElementById('throw-btn');
-  btn.disabled = today;
-  btn.querySelector('span').textContent = today ? 'Завтра новый бросок' : 'Бросить камушек';
+  const h = new Date().getHours();
+  const slot = RIVER_SLOTS.find((s) => (s.from < s.to ? h >= s.from && h < s.to : h >= s.from || h < s.to));
+  $('rv-bg').style.backgroundImage = `url('img/${slot.img}.webp')`;
+  $('rv-bg').style.backgroundPosition = slot.pos;
+  $('rv-ico').innerHTML = slot.moon ? MOON_ICO : SUN_ICO;
+  $('rv-chip-text').textContent = slot.name + ' • ' + slot.loc;
+  $('rv-title').textContent = slot.title;
+  const thrown = db.river && db.river.date === localDay();
+  $('rv-text').textContent = thrown ? db.river.text : slot.mood; // до броска — настроение, после — история дня
+  $('throw-btn').disabled = thrown;
+  $('throw-btn').querySelector('span').textContent = thrown ? 'Завтра новый бросок' : 'Бросить камушек';
 }
 function throwStone() {
-  const btn = document.getElementById('throw-btn');
+  const btn = $('throw-btn');
   if (btn.disabled) return;
   btn.disabled = true;
   btn.querySelector('span').textContent = 'Камушек летит...';
   setTimeout(() => {
-    const prev = db.river ? db.river.text : null;
-    let text = ADVICES[Math.floor(Math.random() * ADVICES.length)];
-    if (text === prev) text = ADVICES[(ADVICES.indexOf(text) + 1) % ADVICES.length];
-    db.river = { date: localDay(), text };
+    let i = Math.floor(Math.random() * ADVICES.length);
+    if (db.river && ADVICES[i] === db.river.text) i = (i + 1) % ADVICES.length; // не повторять вчерашний
+    db.river = { date: localDay(), text: ADVICES[i] };
     save(); renderRiver();
   }, 900);
 }
 
-/* ================= профиль ================= */
+/* ===================== профиль ===================== */
 function renderStats() {
-  const today = db.done.filter((c) => new Date(c.at).toDateString() === new Date().toDateString()).length;
-  const week = db.done.filter((c) => c.at >= Date.now() - 7 * 86400e3).length;
-  document.getElementById('st-today').textContent = today;
-  document.getElementById('st-week').textContent = week;
-  document.getElementById('st-total').textContent = db.done.length;
-}
-// «О приложении»: версия сборки (= VERSION в sw.js) и диагностика Telegram
-const BUILD = 'v10';
-function aboutToast() {
-  const tg = window.Telegram && Telegram.WebApp;
-  let s = 'rock do · версия 1.1.0 (' + BUILD + ')';
-  if (tg && tg.platform !== 'unknown') {
-    const a = tg.safeAreaInset || {}, c = tg.contentSafeAreaInset || {};
-    s += `\nTelegram ${tg.version} · ${tg.platform}${tg.isFullscreen ? ' · fullscreen' : ''}` +
-         `\nотступы: сверху ${a.top | 0}+${c.top | 0}, снизу ${a.bottom | 0}+${c.bottom | 0}`;
-  } else if (IN_TG) s += '\nTelegram: SDK не загрузился';
-  toast(s);
-}
-const tz = -new Date().getTimezoneOffset() / 60;
-document.getElementById('tz-val').textContent = `(UTC${tz >= 0 ? '+' : ''}${tz})`;
-
-/* ================= удержание -> перетаскивание ================= */
-let drag = null, suppressClick = false;
-
-/* --- отмена удаления --- */
-let lastDeleted = null, snackTimer = null;
-function showSnack(text) {
-  document.getElementById('snack-text').textContent = text;
-  document.getElementById('snack').classList.add('on');
-  clearTimeout(snackTimer);
-  snackTimer = setTimeout(hideSnack, 5000);
-}
-function hideSnack() {
-  document.getElementById('snack').classList.remove('on');
-  lastDeleted = null;
-}
-function snackUndo() {
-  if (!lastDeleted) return;
-  if (lastDeleted.type === 'task') { db.tasks.push(lastDeleted.item); renderTasks(); }
-  else if (lastDeleted.type === 'note') { db.notes.push(lastDeleted.item); renderNotes(); }
-  else { db.done.push(lastDeleted.item); renderDone(); renderStats(); }
-  save();
-  hideSnack();
+  $('st-today').textContent = db.done.filter((c) => sameDay(c.at, Date.now())).length;
+  $('st-week').textContent = db.done.filter((c) => c.at >= Date.now() - 7 * DAY).length;
+  $('st-total').textContent = db.done.length;
 }
 
-function pressStart(e, id, type) {
-  if (e.target.closest('.hit')) return; // чекбокс не тянем
-  holdGesture(e, e.currentTarget, id, type);
-}
-
-/* удержание карточки HOLD_MS → перетаскивание. Тап здесь НЕ обрабатываем: это обычный click
-   браузера (onclick у карточки). Свой «тап по отпусканию пальца» открывал меню раньше click,
-   и тот же click тут же закрывал его, попадая в фон меню.
-   Палец ведём через touch-события: pointer-события браузер отбирает (pointercancel), как только
-   решит, что это прокрутка, а preventDefault у touchmove после «подъёма» карточки надёжно её запрещает.
-   Слушаем сам элемент под пальцем: при перестановке список перерисовывается, элемент выпадает
-   из документа, и до document события касания больше не всплывают — а ему самому приходят всегда. */
+/* ===================== перетаскивание: удержание → перенос ===================== */
+/* Тап — обычный click браузера (onclick у карточек). Здесь только удержание:
+   - палец ведём touch-событиями: pointer-события браузер отбирает, как только решит, что это прокрутка,
+     а preventDefault у touchmove после «подъёма» карточки надёжно запрещает прокрутку;
+   - слушаем элемент под пальцем, а не document: при перестановке список перерисовывается, элемент
+     выпадает из документа, и события касания до document больше не доходят, а ему самому — доходят. */
 const HOLD_MS = 280, SLOP = 8;
-function holdGesture(e, card, id, type) {
-  if (e.button > 0) return;
-  if (drag) endDrag(true); // осиротевший перенос (например, второй палец) — вернуть карточку на место
-  const touch = e.pointerType !== 'mouse';
+let drag = null, suppressClick = false;
+function pressStart(e, id, type) {
+  if (e.button > 0 || e.target.closest('.hit')) return; // кружок не тянем
+  if (drag) endDrag(true);
+  const card = e.currentTarget, touch = e.pointerType !== 'mouse';
   const host = touch ? e.target : document;
   const [MOVE, UP, CANCEL] = touch ? ['touchmove', 'touchend', 'touchcancel'] : ['pointermove', 'pointerup', 'pointercancel'];
-  const pt = (ev) => (ev.changedTouches ? ev.changedTouches[0] : ev);
   const sx = e.clientX, sy = e.clientY;
   let lifted = false;
   const timer = setTimeout(() => { lifted = true; startDrag(card, id, type, sx, sy); }, HOLD_MS);
   const move = (ev) => {
-    const p = pt(ev);
+    const p = ev.changedTouches ? ev.changedTouches[0] : ev;
     if (lifted) { if (ev.cancelable) ev.preventDefault(); dragMove(p.clientX, p.clientY); }
     else if (Math.hypot(p.clientX - sx, p.clientY - sy) > SLOP) finish(); // это прокрутка
   };
-  const up = (ev) => {
-    const wasLifted = lifted;
-    finish();
-    if (wasLifted) endDrag(ev.type === CANCEL);
-  };
+  const up = (ev) => { finish(); if (lifted) endDrag(ev.type === CANCEL); };
   function finish() {
     clearTimeout(timer);
-    host.removeEventListener(MOVE, move);
-    host.removeEventListener(UP, up);
-    host.removeEventListener(CANCEL, up);
+    host.removeEventListener(MOVE, move); host.removeEventListener(UP, up); host.removeEventListener(CANCEL, up);
   }
   host.addEventListener(MOVE, move, { passive: false });
   host.addEventListener(UP, up);
   host.addEventListener(CANCEL, up);
 }
+const dragEl = (id) => $({ task: 'task-', note: 'note-', done: 'done-' }[drag.type] + id);
 
 function startDrag(card, id, type, px, py) {
   haptic('drag');
   const r = card.getBoundingClientRect();
-  const ghost = card.cloneNode(true); // «поднятая» копия следует за пальцем
-  ghost.removeAttribute('id'); // иначе дублирует id оригинала и ломает FLIP
+  const ghost = card.cloneNode(true); // «поднятая» копия идёт за пальцем
+  ghost.removeAttribute('id');
   ghost.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
   Object.assign(ghost.style, {
-    position: 'fixed', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px',
-    margin: 0, zIndex: 100, pointerEvents: 'none', transform: 'scale(1.045)',
-    boxShadow: '0 14px 34px rgba(0,0,0,.55)', background: '#10182a', transition: 'transform .15s',
+    position: 'fixed', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', margin: 0, zIndex: 100,
+    pointerEvents: 'none', transform: 'scale(1.045)', boxShadow: '0 14px 34px rgba(0,0,0,.55)', background: '#10182a', transition: 'transform .15s',
   });
   document.body.appendChild(ghost);
   card.classList.add('drag-src');
-  document.getElementById('trash').classList.add('show'); // показать корзину
-  drag = { id, type, ghost, dx: px - r.left, dy: py - r.top, w: r.width, h: r.height, px, py };
+  $('trash').classList.add('show');
   document.documentElement.classList.add('dragging');
+  drag = { id, type, ghost, dx: px - r.left, dy: py - r.top, w: r.width, h: r.height, px, py };
   requestAnimationFrame(autoScroll);
 }
 
@@ -1230,87 +967,66 @@ function dragMove(x, y) {
   drag.px = x; drag.py = y;
   drag.ghost.style.left = (x - drag.dx) + 'px';
   drag.ghost.style.top = (y - drag.dy) + 'px';
-  // попадание считаем по ЦЕНТРУ карточки — не зависит от места хвата; в корзину — ещё и по пальцу
+  // попадание — по центру карточки (не зависит от места хвата); в корзину — ещё и по пальцу
   const cx = x - drag.dx + drag.w / 2, cy = y - drag.dy + drag.h / 2;
-  const trash = document.getElementById('trash');
-  const tr = document.getElementById('trashBtn').getBoundingClientRect();
+  const tr = $('trash-btn').getBoundingClientRect();
   const near = (px, py, pad) => px >= tr.left - pad && px <= tr.right + pad && py >= tr.top - pad && py <= tr.bottom + pad;
   const hot = near(cx, cy, 12) || near(x, y, 18);
-  if (hot && !trash.classList.contains('hot')) haptic('drag');
-  trash.classList.toggle('hot', hot);
-  if (!hot) previewReorder(cx, cy);
+  if (hot && !$('trash').classList.contains('hot')) haptic('drag');
+  $('trash').classList.toggle('hot', hot);
+  if (!hot) reorder(cx, cy);
 }
 
-/* у верхнего/нижнего края списка он сам прокручивается — можно перенести дело в любое место */
+// у верхнего/нижнего края список сам прокручивается; нижняя зона — над корзиной, не заходя в неё
 function autoScroll() {
   if (!drag) return;
   const sc = document.querySelector('.screen.on');
-  if (sc && drag.type !== 'done') {
-    const r = sc.getBoundingClientRect();
-    const top = r.top + (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top')) || 0) + 70;
-    // нижняя зона — над корзиной и не заходит в её «горячую» область, иначе дело улетит в корзину
-    const hotTop = document.getElementById('trashBtn').getBoundingClientRect().top - 12;
-    const bottom = hotTop - 70;
-    const y = drag.py - drag.dy + drag.h / 2; // центр карточки — как и при попадании в корзину
+  if (drag.type !== 'done') {
+    const top = sc.getBoundingClientRect().top + (parseFloat(getComputedStyle(sc).paddingTop) || 0) + 50;
+    const hotTop = $('trash-btn').getBoundingClientRect().top - 12, bottom = hotTop - 70;
+    const y = drag.py - drag.dy + drag.h / 2;
     const v = y < top ? -Math.min(14, (top - y) / 4) : y > bottom && y < hotTop ? Math.min(14, (y - bottom) / 4) : 0;
-    if (v) {
-      const before = sc.scrollTop;
-      sc.scrollTop += v;
-      if (sc.scrollTop !== before) dragMove(drag.px, drag.py);
-    }
+    const before = sc.scrollTop;
+    if (v) sc.scrollTop += v;
+    if (sc.scrollTop !== before) dragMove(drag.px, drag.py);
   }
   requestAnimationFrame(autoScroll);
 }
 
-const dragArr = () => drag.type === 'task' ? db.tasks : db.notes;
-const dragEl = (id) => document.getElementById(
-  (drag.type === 'task' ? 'task-' : drag.type === 'note' ? 'note-' : 'done-') + id);
-// положение карточки без учёта идущей FLIP-анимации (transform), иначе порядок «дрожит»
+// положение карточки без учёта идущей анимации перестановки, иначе порядок «дрожит»
 function layoutRect(el) {
   const sc = el.offsetParent, r = sc.getBoundingClientRect();
   const left = r.left + el.offsetLeft - sc.scrollLeft, top = r.top + el.offsetTop - sc.scrollTop;
-  return { left, top, right: left + el.offsetWidth, bottom: top + el.offsetHeight, height: el.offsetHeight };
+  return { left, top, right: left + el.offsetWidth, bottom: top + el.offsetHeight, mid: top + el.offsetHeight / 2 };
 }
-
-function previewReorder(x, y) {
+function reorder(x, y) {
   if (drag.type === 'done') return; // сделанные не переставляются — только в корзину
-  const sorted = [...dragArr()].sort((a, b) => a.pos - b.pos);
+  const sorted = byPos(drag.type === 'task' ? db.tasks : db.notes);
   const me = sorted.find((it) => it.id === drag.id);
+  const rectOf = (it) => { const el = it !== me && dragEl(it.id); return el ? layoutRect(el) : null; };
   let order;
-  if (drag.type === 'task') {
-    // дела — один столбец: вставляем перед первой карточкой, чья середина ниже центра переносимой
+  if (drag.type === 'task') { // столбец: встаём перед первой карточкой, чья середина ниже
     const rest = sorted.filter((it) => it !== me);
-    const before = rest.find((it) => { const el = dragEl(it.id); if (!el) return false;
-      const c = layoutRect(el); return y < c.top + c.height / 2; });
+    const before = rest.find((it) => { const c = rectOf(it); return c && y < c.mid; });
     order = [...rest];
     order.splice(before ? order.indexOf(before) : order.length, 0, me);
-  } else {
-    // камушки — плитка в 2 колонки: меняемся местами с карточкой под пальцем
-    const hit = sorted.find((it) => { if (it === me) return false; const el = dragEl(it.id); if (!el) return false;
-      const c = layoutRect(el); return x >= c.left && x <= c.right && y >= c.top && y <= c.bottom; });
-    if (!hit || (drag.cool && Date.now() - drag.cool < 250)) return; // пауза, чтобы пары не мигали
+  } else { // плитка: меняемся местами с карточкой под пальцем
+    const hit = sorted.find((it) => { const c = rectOf(it); return c && x >= c.left && x <= c.right && y >= c.top && y <= c.bottom; });
+    if (!hit || Date.now() - (drag.swapAt || 0) < 250) return; // пауза, чтобы пары не мигали
     order = [...sorted];
     const i = order.indexOf(me), j = order.indexOf(hit);
     [order[i], order[j]] = [order[j], order[i]];
-    drag.cool = Date.now();
+    drag.swapAt = Date.now();
   }
   if (order.every((it, i) => it === sorted[i])) return;
-  order.forEach((it, i) => it.pos = i);
-  rerenderFlip();
-}
-
-// FLIP: плавное перетекание карточек на новые места
-function rerenderFlip() {
-  const olds = new Map();
-  document.querySelectorAll('.card.task[id],.note-card[id]').forEach((el) => olds.set(el.id, el.getBoundingClientRect()));
-  if (drag.type === 'task') renderTasks(); else renderNotes();
-  const src = dragEl(drag.id);
-  if (src) src.classList.add('drag-src');
-  olds.forEach((o, domId) => {
-    const el = document.getElementById(domId);
-    if (!el) return;
-    const n = el.getBoundingClientRect();
-    const dx = o.left - n.left, dy = o.top - n.top;
+  order.forEach((it, i) => { it.pos = i; });
+  // перерисовка с плавным перетеканием карточек на новые места
+  const before = new Map([...document.querySelectorAll('.task[id],.note-card[id]')].map((el) => [el.id, el.getBoundingClientRect()]));
+  drag.type === 'task' ? renderTasks() : renderNotes();
+  dragEl(drag.id).classList.add('drag-src');
+  before.forEach((o, domId) => {
+    const el = $(domId); if (!el) return;
+    const n = el.getBoundingClientRect(), dx = o.left - n.left, dy = o.top - n.top;
     if (!dx && !dy) return;
     el.style.transition = 'none';
     el.style.transform = `translate(${dx}px,${dy}px)`;
@@ -1319,73 +1035,67 @@ function rerenderFlip() {
 }
 
 function endDrag(cancelled) {
-  const trash = document.getElementById('trash');
-  // жест отменён системой — в корзину не бросаем, карточка возвращается на место
-  const hot = !cancelled && trash.classList.contains('hot');
   const { id, type, ghost } = drag;
+  const intoTrash = !cancelled && $('trash').classList.contains('hot'); // отмену жеста системой в корзину не считаем
   const src = dragEl(id);
-
-  if (hot) { // бросили в корзину — удаляем с анимацией втягивания
-    const tr = document.getElementById('trashBtn').getBoundingClientRect();
-    ghost.style.transition = 'all .22s ease';
-    ghost.style.left = (tr.left + tr.width / 2 - 24) + 'px';
-    ghost.style.top = (tr.top + tr.height / 2 - 14) + 'px';
-    ghost.style.transform = 'scale(.08)';
-    ghost.style.opacity = '0';
-    if (type === 'task') {
-      lastDeleted = { type, item: db.tasks.find((t) => t.id === id) };
-      db.tasks = db.tasks.filter((t) => t.id !== id);
-    } else if (type === 'note') {
-      lastDeleted = { type, item: db.notes.find((n) => n.id === id) };
-      db.notes = db.notes.filter((n) => n.id !== id);
-    } else { // done: удаление из истории
-      lastDeleted = { type, item: db.done.find((d) => d.id === id) };
-      db.done = db.done.filter((d) => d.id !== id);
-    }
-    save();
-    setTimeout(() => {
-      ghost.remove();
-      if (type === 'task') renderTasks();
-      else if (type === 'note') renderNotes();
-      else { renderDone(); renderStats(); }
-    }, 210);
-    showSnack(type === 'task' ? 'Задача удалена' : type === 'note' ? 'Камушек удалён' : 'Удалено из истории');
-  } else {
-    if (src) { // призрак мягко садится на своё место
+  drag = null;
+  $('trash').classList.remove('show', 'hot');
+  document.documentElement.classList.remove('dragging');
+  suppressClick = true; // click после удержания не должен открыть карточку
+  setTimeout(() => { suppressClick = false; }, 300);
+  if (intoTrash) { // втягивается в корзину
+    const tr = $('trash-btn').getBoundingClientRect();
+    Object.assign(ghost.style, { transition: 'all .22s ease', left: (tr.left + tr.width / 2 - 24) + 'px', top: (tr.top + tr.height / 2 - 14) + 'px', transform: 'scale(.08)', opacity: '0' });
+    setTimeout(() => ghost.remove(), 220);
+    const kind = { task: 'tasks', note: 'notes', done: 'done' }[type];
+    removeWithUndo(kind, id, { tasks: 'Задача удалена', notes: 'Камушек удалён', done: 'Удалено из истории' }[kind]);
+  } else { // садится на своё место
+    if (src) {
       const r = src.getBoundingClientRect();
-      ghost.style.transition = 'all .16s ease';
-      ghost.style.transform = 'scale(1)';
-      ghost.style.left = r.left + 'px';
-      ghost.style.top = r.top + 'px';
+      Object.assign(ghost.style, { transition: 'all .16s ease', transform: 'scale(1)', left: r.left + 'px', top: r.top + 'px' });
     }
     setTimeout(() => { ghost.remove(); if (src) src.classList.remove('drag-src'); }, 170);
     save();
   }
-
-  trash.classList.remove('show', 'hot');
-  document.documentElement.classList.remove('dragging');
-  drag = null;
-  // после удержания клик всегда гасим — иначе случайно открывается редактор
-  suppressClick = true;
-  setTimeout(() => suppressClick = false, 300);
 }
 
-/* старт */
-renderTasks(); renderNotes(); renderRiver(); renderStats();
-tgPost('web_app_ready'); // экран уже нарисован — Telegram может убрать свою заглушку
-tgPost('web_app_expand');
-
-/* PWA: офлайн-режим и установка на телефон */
-// после загрузки страницы: кэширование для офлайна не должно отнимать сеть у первого показа
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+/* ===================== Telegram ===================== */
+let tg = null;
+function initTelegram() {
+  const w = window.Telegram && Telegram.WebApp;
+  if (!w || !w.initData) return; // открыто не в Telegram
+  tg = w;
+  tg.ready();
+  tg.expand();
+  if (tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes(); // иначе перенос карточек вниз закрывает приложение
+  if (tg.isVersionAtLeast('6.9')) tg.setHeaderColor('#030912');
+  if (tg.isVersionAtLeast('6.1')) tg.setBackgroundColor('#030912');
+  if (tg.isVersionAtLeast('7.10')) tg.setBottomBarColor('#050b14');
 }
-// просим браузер не вычищать данные при нехватке места
-if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-// пришли с вечера, а на дворе утро — обновляем речку и сроки
+function haptic(kind) {
+  if (tg && tg.isVersionAtLeast('6.1')) kind === 'success' ? tg.HapticFeedback.notificationOccurred('success') : tg.HapticFeedback.impactOccurred('medium');
+  else if (navigator.vibrate) navigator.vibrate(kind === 'success' ? 15 : 25);
+}
+
+/* ===================== старт ===================== */
+function renderAll() { renderTasks(); renderDone(); renderNotes(); renderStats(); }
+renderAll();
+renderRiver();
+const tz = -new Date().getTimezoneOffset() / 60;
+$('tz-val').textContent = `(UTC${tz >= 0 ? '+' : ''}${tz})`;
+$('ver-val').textContent = 'версия ' + APP_VERSION;
+
+if (window.Telegram) initTelegram(); else $('tg-sdk').addEventListener('load', initTelegram);
+
+// офлайн-режим: регистрируем после загрузки, чтобы кэширование не отнимало сеть у первого показа
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  addEventListener('load', () => navigator.serviceWorker.register('sw.js?v=' + APP_VERSION).catch(() => {}));
+}
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); // не вычищать данные
+// вернулись в приложение (например, утром) — обновить сроки и речку
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return;
-  renderTasks();
+  if (document.visibilityState !== 'visible' || drag) return;
+  renderTasks(); renderDone();
   if (current === 'river') renderRiver();
   if (current === 'profile') renderStats();
 });

@@ -44,7 +44,7 @@
   const check = (name, ok) => results.push({ сценарий: name, итог: ok ? 'OK' : 'ОШИБКА' });
   const titles = () => [...document.querySelectorAll('#task-list .card.task b')].map((b) => b.textContent);
   const doneWrap = (title) => [...document.querySelectorAll('.done-wrap')].find((w) => w.querySelector('b').textContent === title);
-  const sheet = document.getElementById('doneSheet');
+  const sheet = document.getElementById('done-sheet');
 
   // дела
   const t0 = titles()[0];
@@ -72,15 +72,15 @@
   await hold(b0, p0, [p0[0], p0[1] + 3 * step]);
   check('удержание и перенос дела на 3 позиции вниз', titles().indexOf(first) === 3);
   const sc = document.getElementById('s-rock');
-  const hotTop = document.getElementById('trashBtn').getBoundingClientRect().top - 46 - 12; // корзина пока спрятана на 46px ниже
+  const hotTop = document.getElementById('trash-btn').getBoundingClientRect().top - 46 - 12; // корзина пока спрятана на 46px ниже
   const second = titles()[1], b1 = cards()[1].querySelector('b'), p1 = at(b1, 20);
   await hold(b1, p1, [p1[0], hotTop - 30], 1500);
   check('автопрокрутка у нижнего края, корзина не срабатывает', sc.scrollTop > 0 && titles().indexOf(second) === titles().length - 1);
   sc.scrollTop = 0; await sleep(50);
-  const third = titles()[0], b2 = cards()[0].querySelector('b'), tb = document.getElementById('trashBtn').getBoundingClientRect();
+  const third = titles()[0], b2 = cards()[0].querySelector('b'), tb = document.getElementById('trash-btn').getBoundingClientRect();
   await hold(b2, at(b2, 20), [tb.left + tb.width / 2, tb.top + tb.height / 2 - 46]);
   check('бросок в корзину + «Отменить»', !titles().includes(third) && document.getElementById('snack').classList.contains('on'));
-  snackUndo();
+  undoDelete();
   const c3 = cards()[2].querySelector('b'), [sx, sy] = at(c3, 20);
   c3.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: sx, clientY: sy, button: 0 }));
   c3.dispatchEvent(touchEv('touchmove', c3, sx, sy - 40));
@@ -92,5 +92,5 @@
   localStorage.removeItem('rockdo-demo');
   console.table(results);
   const failed = results.filter((r) => r.итог !== 'OK').length;
-  console.log(failed ? `❌ ошибок: ${failed}` : `✅ все ${results.length} сценариев прошли (сборка ${BUILD})`);
+  console.log(failed ? `❌ ошибок: ${failed}` : `✅ все ${results.length} сценариев прошли (версия ${APP_VERSION})`);
 })();
