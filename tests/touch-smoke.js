@@ -67,23 +67,26 @@
   const regTitles = () => [...document.querySelectorAll('#reg-list .card.task b')].map((b) => b.textContent);
   const regCard = (title) => [...document.querySelectorAll('#reg-list .card.task')].find((c) => c.querySelector('b').textContent === title);
   const head = (sel) => (document.querySelector(sel + ' .sec-h') || {}).textContent || '';
-  const reg0 = regTitles()[0];
+  const reg0 = regTitles()[0]; // «Тренировка»: срок сегодня
   check('три раздела: регулярное — в «Регулярных», не в «Моих делах»',
     !!reg0 && head('#reg-list').startsWith('Регулярные') && !titles().includes(reg0));
-  const due0 = regCard(reg0).querySelector('.due').textContent, doneBefore = db.done.length;
-  if (!regCard(reg0).classList.contains('wait')) {
-    await tap(at(regCard(reg0).querySelector('.checkbox'))); await sleep(500);
-    check('регулярное: тап — раз засчитан, дело остаётся в «Регулярных» со следующей датой',
-      regTitles().includes(reg0) && regCard(reg0).querySelector('.due').textContent !== due0 &&
-      db.done.length === doneBefore + 1 && head('#done-list').startsWith('Сделанные'));
-  }
-  const doneNow = db.done.length;
-  await tap(at(regCard(reg0).querySelector('.checkbox')));
-  check('регулярное: заранее, до своего дня, не отмечается', regCard(reg0).classList.contains('wait') && db.done.length === doneNow);
+  const doneBefore = db.done.length;
+  await tap(at(regCard(reg0).querySelector('.checkbox'))); await sleep(500);
+  check('регулярное: отметил — исчезает из «Регулярных» до конца дня, запись в «Сделанных»',
+    !regTitles().includes(reg0) && !titles().includes(reg0) && db.done.length === doneBefore + 1 && !!doneWrap(reg0));
+  await tap(at(doneWrap(reg0).querySelector('.checkbox')));
+  check('регулярное: отмена выполнения возвращает его в «Регулярные»', regTitles().includes(reg0) && !doneWrap(reg0));
+  await tap(at(regCard(reg0).querySelector('.checkbox'))); await sleep(500);
+  db.done.find((d) => d.title === reg0).at -= 86400e3; renderTasks(); // наступил следующий день
+  check('регулярное: на следующий день снова в «Регулярных»', regTitles().includes(reg0));
+  db.tasks.push({ id: 800, title: 'Ждёт своего дня', due: Date.now() + 2 * 86400e3, rep: 'daily', pos: -100 }); renderTasks();
+  const doneNow = db.done.length, waitTitle = 'Ждёт своего дня';
+  await tap(at(regCard(waitTitle).querySelector('.checkbox')));
+  check('регулярное: заранее, до своего дня, не отмечается', regTitles().includes(waitTitle) && regCard(waitTitle).classList.contains('wait') && db.done.length === doneNow);
   const mine0 = titles()[0], m0 = document.querySelector('#task-list .card.task b'), pm = at(m0, 20);
-  const pr = at(regCard(reg0));
+  const pr = at(regCard(waitTitle));
   await hold(m0, pm, [pm[0], pr[1] + 10]);
-  check('перенос не переводит дело в другой раздел', titles().includes(mine0) && !regTitles().includes(mine0) && regTitles().includes(reg0));
+  check('перенос не переводит дело в другой раздел', titles().includes(mine0) && !regTitles().includes(mine0) && regTitles().includes(waitTitle));
 
   // перенос
   for (let i = 1; i <= 14; i++) db.tasks.push({ id: 900 + i, title: 'Тест ' + i, due: null, rep: 'never', pos: 100 + i });

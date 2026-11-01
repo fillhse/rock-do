@@ -443,7 +443,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -581,6 +581,9 @@ function undoDelete() {
 /* ===================== дела ===================== */
 // три раздела камня: «Мои дела» (разовые), «Регулярные» (с повтором), «Сделанные» (история)
 const isWaiting = (t) => t.due > Date.now() && !sameDay(t.due, Date.now()); // день регулярного ещё не настал
+// регулярное, отмеченное сегодня, до конца дня не показываем — завтра оно вернётся со своей датой.
+// Признак — запись в истории: отменил выполнение или удалил запись — дело снова на месте
+const doneToday = (t) => db.done.some((d) => d.fromRepeat && d.taskId === t.id && sameDay(d.at, Date.now()));
 function taskCard(t) {
   const wait = isRepeating(t) && isWaiting(t);
   return `
@@ -596,12 +599,11 @@ function renderTaskList(box, ts) {
 }
 function renderTasks() {
   const all = byPos(db.tasks);
-  const mine = all.filter((t) => !isRepeating(t)), regular = all.filter(isRepeating);
+  const mine = all.filter((t) => !isRepeating(t)), regular = all.filter((t) => isRepeating(t) && !doneToday(t));
   $('task-count').textContent = mine.length;
   renderTaskList($('task-list'), mine);
   if (!all.length) $('task-list').innerHTML = '<div class="empty"><img src="img/rock-sleep.webp" alt=""><div>Пока камень свободен.<br>Положи на него первое дело.</div></div>';
   const reg = $('reg-list'); // порядок в обоих разделах ручной — перетаскиванием
-
   reg.innerHTML = regular.length ? `<div class="sec-h">Регулярные <b>${regular.length}</b></div><div></div>` : '';
   if (regular.length) renderTaskList(reg.lastElementChild, regular);
 }
@@ -616,7 +618,7 @@ function completeTask(id) {
   haptic('success');
   $('cb-' + id).classList.add('on');
   $('cb-' + id).textContent = '✓';
-  if (!regular) card.classList.add('done'); // разовое уезжает в «Сделанные», регулярное остаётся в своём разделе
+  card.classList.add('done'); // уезжает: разовое — в «Сделанные», регулярное — до следующего дня
   setTimeout(() => {
     if (regular) { // этот раз засчитан, дело ждёт следующего
       db.done.push({ id: newId(), title: t.title, at: Date.now(), fromRepeat: true, taskId: t.id, prevDue: t.due, rep: t.rep });
