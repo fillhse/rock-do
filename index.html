@@ -48,8 +48,6 @@ h1{font-size:21px;margin-bottom:4px}
 .hero .phrase{font-size:18px;font-weight:700;line-height:1.3}
 .hero .hint{color:var(--accent2);font-size:12px;line-height:1.4;margin-top:8px}
 .count{margin-bottom:10px}
-/* списки камня не короче экрана — чтобы подсказку над ними всегда можно было увести вверх */
-.rock-main{min-height:100%}
 .count b{color:var(--text)}
 
 /* карточки, которые можно взять пальцем */
@@ -268,12 +266,10 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
         <div class="hint">Новые советы + Напоминания в Telegram</div>
       </div>
     </div>
-    <div class="rock-main" id="rock-main">
-      <div class="sub count">Мои дела <b id="task-count">0</b></div>
-      <div id="task-list"></div>
-      <div id="reg-list"></div>
-      <div id="done-list"></div>
-    </div>
+    <div class="sub count">Мои дела <b id="task-count">0</b></div>
+    <div id="task-list"></div>
+    <div id="reg-list"></div>
+    <div id="done-list"></div>
   </section>
 
   <!-- Камушки: заметки -->
@@ -450,7 +446,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.5.1';
+const APP_VERSION = '1.5.2';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -572,14 +568,9 @@ const plural = (n, f) => f[n % 10 === 1 && n % 100 !== 11 ? 0 : n % 10 >= 2 && n
 
 /* ===================== каркас: экраны, окна, сообщения ===================== */
 let current = 'rock';
-// камень открывается сразу с «Моих дел»; подсказка с Рокки — выше, до неё можно долистать
-const rockTopOffset = () => $('rock-main').offsetTop - parseFloat(getComputedStyle($('s-rock')).paddingTop);
-function rockToTop() { $('s-rock').scrollTop = rockTopOffset(); }
 function go(s) {
-  const wasRock = current === 'rock' && $('s-rock').classList.contains('on');
   current = s;
   document.querySelectorAll('.screen').forEach((e) => e.classList.toggle('on', e.id === 's-' + s));
-  if (s === 'rock' && !wasRock) rockToTop();
   document.querySelectorAll('.nav [data-s]').forEach((b) => b.classList.toggle('active', b.dataset.s === s));
   if (s === 'profile') renderStats();
   if (s === 'river') renderRiver(); // локация зависит от времени
@@ -1022,7 +1013,7 @@ function startDrag(card, id, type, px, py) {
   card.classList.add('drag-src');
   $('trash').classList.add('show');
   document.documentElement.classList.add('dragging');
-  drag = { id, type, ghost, dx: px - r.left, dy: py - r.top, w: r.width, h: r.height, px, py, y0: r.top + r.height / 2 };
+  drag = { id, type, ghost, dx: px - r.left, dy: py - r.top, w: r.width, h: r.height, px, py };
   requestAnimationFrame(autoScroll);
 }
 
@@ -1049,10 +1040,7 @@ function autoScroll() {
     const top = sc.getBoundingClientRect().top + (parseFloat(getComputedStyle(sc).paddingTop) || 0) + 50;
     const hotTop = $('trash-btn').getBoundingClientRect().top - 12, bottom = hotTop - 70;
     const y = drag.py - drag.dy + drag.h / 2;
-    // прокручиваем, только если карточку повели к краю: поднятая у самого края (первое дело при открытии
-    // камня с «Моих дел») от дрожи пальца не должна утаскивать список
-    const toward = (d) => (y - drag.y0) * d > 24;
-    const v = y < top && toward(-1) ? -Math.min(14, (top - y) / 4) : y > bottom && y < hotTop && toward(1) ? Math.min(14, (y - bottom) / 4) : 0;
+    const v = y < top ? -Math.min(14, (top - y) / 4) : y > bottom && y < hotTop ? Math.min(14, (y - bottom) / 4) : 0;
     const before = sc.scrollTop;
     if (v) sc.scrollTop += v;
     if (sc.scrollTop !== before) dragMove(drag.px, drag.py);
@@ -1466,7 +1454,6 @@ function haptic(kind) {
 function renderAll() { renderTasks(); renderDone(); renderNotes(); renderStats(); }
 renderAll();
 renderRiver();
-rockToTop();
 const tz = -new Date().getTimezoneOffset() / 60;
 $('tz-val').textContent = `(UTC${tz >= 0 ? '+' : ''}${tz})`;
 $('ver-val').textContent = 'версия ' + APP_VERSION;

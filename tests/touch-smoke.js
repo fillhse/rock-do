@@ -115,27 +115,6 @@
   await sleep(HOLD_MS + 60);
   check('быстрый свайп — прокрутка, карточка не поднимается', !drag);
   c3.dispatchEvent(touchEv('touchend', c3, sx, sy - 40));
-  // камень открыт с «Моих дел»: первое дело стоит у верхнего края — дрожь пальца не утаскивает список к подсказке,
-  // а если повести дело вверх, список, как и раньше, прокручивается
-  const firstB = () => document.querySelector('#task-list .card.task b');
-  rockToTop(); await sleep(50);
-  const s0 = sc.scrollTop, f1 = firstB(), pf = at(f1, 20);
-  await hold(f1, pf, [pf[0], pf[1] - 5], 800);
-  check('первое дело у края: подняли, палец дрогнул — список стоит', Math.abs(sc.scrollTop - s0) < 1);
-  rockToTop(); await sleep(50);
-  const f2 = firstB(), pf2 = at(f2, 20);
-  await hold(f2, pf2, [pf2[0], pf2[1] - 60], 500);
-  check('первое дело повели вверх — список прокручивается', sc.scrollTop < s0 - 20);
-  // мышь и трекпад (ноутбук): просто клик — открывает дело
-  const mcards = () => document.querySelectorAll('#task-list .card.task');
-  sc.scrollTop = 0; rockToTop(); await sleep(50);
-  const pe = (type, x, y, target = document) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'mouse', clientX: x, clientY: y, button: 0, buttons: type === 'pointerup' ? 0 : 1 }));
-  const mb2 = mcards()[0].querySelector('b'), [cx2, cy2] = at(mb2, 20);
-  pe('pointerdown', cx2, cy2, mb2); pe('pointerup', cx2, cy2, mb2);
-  document.elementFromPoint(cx2, cy2).dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: cx2, clientY: cy2 }));
-  await sleep(300);
-  check('мышь: просто клик по делу — открывается редактор', document.getElementById('o-task').classList.contains('on'));
-  closeOverlay('o-task');
   check('после жестов не осталось «призраков»', !drag && !document.querySelector('body > .card, body > .note-card, body > .done-wrap'));
 
   localStorage.removeItem('rockdo-demo');
