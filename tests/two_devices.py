@@ -11,6 +11,8 @@
 --b-index ФАЙЛ — «Mac» получает другой index.html (например, прошлую выкладку из git).
 --a-index ФАЙЛ — то же для «телефона» (вместе с --b-index — сравнить старую выкладку целиком).
 --delay 0.4 — каждый запрос к облаку отвечает с задержкой (как сеть до серверов Telegram).
+--write-delay 1.5 --serial — запись ключа медленная и записи идут строго по одной (так ведёт себя
+  Telegram на Mac: чтение 0,1 с, запись нескольких ключей — до 7 с).
 """
 import argparse
 import json
@@ -23,6 +25,9 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLOUD, LOCK = {}, threading.Lock()
 DELAY = 0.0  # задержка ответа облака, с
+WRITE_DELAY = 0.0  # задержка записи ключа, с
+SERIAL = threading.Lock()  # с --serial записи идут по одной
+USE_SERIAL = False
 
 FAKE_TG = """<script>
 /* подставной Telegram: всё, что приложение вызывает, плюс облако на общем сервере */
@@ -86,6 +91,12 @@ def make_handler(old_version, index_file=''):
             op = self.path.rsplit('/', 1)[-1]
             if op != 'reset':
                 time.sleep(DELAY)
+            if op in ('set', 'remove') and (WRITE_DELAY or USE_SERIAL):
+                if USE_SERIAL:
+                    with SERIAL:
+                        time.sleep(WRITE_DELAY)
+                else:
+                    time.sleep(WRITE_DELAY)
             with LOCK:
                 if op == 'set':
                     CLOUD[body['k']] = body['v']; res = True
@@ -111,8 +122,10 @@ if __name__ == '__main__':
     ap.add_argument('--b-index', default='', help='index.html для второго устройства')
     ap.add_argument('--a-index', default='', help='index.html для первого устройства')
     ap.add_argument('--delay', type=float, default=0.0, help='задержка ответа облака, с')
+    ap.add_argument('--write-delay', type=float, default=0.0, help='задержка записи ключа, с')
+    ap.add_argument('--serial', action='store_true', help='записи строго по одной')
     args = ap.parse_args()
-    DELAY = args.delay
+    DELAY, WRITE_DELAY, USE_SERIAL = args.delay, args.write_delay, args.serial
     a = ThreadingHTTPServer(('127.0.0.1', 8781), make_handler('', args.a_index))
     b = ThreadingHTTPServer(('127.0.0.1', 8782), make_handler(args.old_b, args.b_index))
     threading.Thread(target=b.serve_forever, daemon=True).start()

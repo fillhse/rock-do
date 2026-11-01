@@ -44,10 +44,11 @@ const taskId = (title) => `db.tasks.find((t) => t.title === ${JSON.stringify(tit
 
 (async () => {
   for (const f of ['a', 'b']) while (await ask(f, "'ok'") !== 'ok') await sleep(200); // окошки могли загрузиться раньше нас
+  if (location.hash === '#measure') { out.textContent = 'режим замера: сценарии не запускаются'; document.title = 'READY'; return; }
   // чистый старт: пустое облако, у обоих устройств стартовые примеры
   await fetch('/cloud/reset', { method: 'POST', body: '{}' });
   for (const f of ['a', 'b']) { await ask(f, "localStorage.clear(); sessionStorage.clear(); 'ok'"); await reload(f); }
-  for (const f of ['a', 'b']) await ask(f, "window.__delta = 0; window.__full = 0; const _ad = applyDelta; applyDelta = function (...x) { window.__delta++; return _ad.apply(this, x); }; const _cr = cloudRead; cloudRead = function (...x) { window.__full++; return _cr.apply(this, x); }; 'ok'");
+  for (const f of ['a', 'b']) await ask(f, "window.__delta = 0; window.__full = 0; const _ad = applyJournal; applyJournal = function (...x) { window.__delta++; return _ad.apply(this, x); }; const _cr = cloudRead; cloudRead = function (...x) { window.__full++; return _cr.apply(this, x); }; 'ok'");
   out.textContent = 'Версии: телефон ' + await ask('a', 'APP_VERSION') + ', Mac ' + await ask('b', 'APP_VERSION') +
     '; облако включено: ' + await ask('a', '!!cloud') + ' / ' + await ask('b', '!!cloud');
 
@@ -90,6 +91,7 @@ const taskId = (title) => `db.tasks.find((t) => t.title === ${JSON.stringify(tit
   check(`в простое облако не перезаписывается (записей за 4 с: ${revs.size - 1})`, revs.size === 1);
 
   log('ошибки облака: телефон ' + await ask('a', "JSON.stringify(cloudErr)") + ', Mac ' + await ask('b', "JSON.stringify(cloudErr)"));
+  log('запросов в последней записи: телефон ' + await ask('a', 'writeCalls') + ', Mac ' + await ask('b', 'writeCalls'));
   log('изменение пришло в метке / полных чтений: телефон ' + await ask('a', "__delta + ' / ' + __full") + ', Mac ' + await ask('b', "__delta + ' / ' + __full"));
   log(results.every(Boolean) ? `\n✅ все ${results.length} сценариев прошли` : `\n❌ ошибок: ${results.filter((x) => !x).length}`);
   document.title = results.every(Boolean) ? 'OK' : 'FAIL';

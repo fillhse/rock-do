@@ -446,7 +446,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.4.5';
+const APP_VERSION = '1.4.6';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -1118,34 +1118,44 @@ function endDrag(cancelled) {
 /* ===================== облако Telegram ===================== */
 /* Копия данных в CloudStorage Telegram: она привязана к аккаунту и боту, а не к телефону — переживёт
    смену телефона и видна в Telegram на компьютере. Работа идёт с локальной копией (мгновенно и без сети),
-   с облаком приложение сверяется в фоне: при открытии, после правок и при возвращении в приложение.
-   Лимиты Telegram — до 1024 ключей и до 4096 символов в значении, поэтому данные режутся на куски:
-   t0,t1… — дела, n… — камушки, d… — сделанные, m… — прочее; idx — опись, сколько кусков у каждой части. */
-const CHUNK = 4000, MAX_KEYS = 1000, TOMB_DAYS = 180;
+   с облаком приложение сверяется в фоне: при открытии, после правок и пока Rocky на экране — раз в полсекунды.
+
+   Что лежит в облаке:
+   - снимок всех данных кусками (лимит Telegram — 4096 символов на значение, 1024 ключа): t0,t1… — дела,
+     n… — камушки, d… — сделанные, m… — прочее; idx — опись, сколько кусков у каждой части;
+   - метка rev = «заголовок|сумма снимка|журнал». Заголовок — время-случайное-версия-сумма всех данных,
+     журнал — чем текущие данные отличаются от снимка (изменённые элементы и отметки удаления).
+   Запись в облако Telegram медленная и идёт по одной (на Mac — до секунды-двух на ключ), поэтому обычная правка —
+   это ОДНА запись метки с журналом; другие устройства берут журнал прямо из проверки метки. Снимок переписывается
+   целиком, только когда журнал разрастается. Всё сверяется контрольными суммами. */
+// журнал: до JOURNAL_MAX символов идёт в метку (метка целиком — до 4096); больше JOURNAL_COMPACT — снимок
+// переписывается в затишье, через COMPACT_MS после последней правки, а не вместе с правкой
+const CHUNK = 4000, MAX_KEYS = 1000, TOMB_DAYS = 180, JOURNAL_MAX = 3900, JOURNAL_COMPACT = 2000, COMPACT_MS = 4000;
+const POLL_MS = 500, POLL_MAX = 8000, MIXED_AFTER_MS = 10000;
 let cloud = null;      // Telegram.WebApp.CloudStorage, когда приложение открыто в Telegram
-let cloudKeys = {};    // что сейчас лежит в облаке: ключ → значение (пишем только изменившееся)
-let cloudTimer, cloudAt = 0, syncing = null, syncAgain = false, cloudBroken = 0, readOnce = false, badRev = null;
-let mixedRead = false; // прочитали смесь двух одновременных записей — облако надо переписать целиком
-let readMs = 0, writeMs = 0; // сколько заняли последние чтение и запись — видно в «Хранение»
-let cloudErr = null;         // последняя ошибка облака (текст и время) — тоже видно в «Хранение»
+let cloudKeys = {};    // куски снимка, как они сейчас лежат в облаке (при переписи снимка пишем только изменившиеся)
+let snapItems = null, snapSum = null; // элементы снимка в облаке и его сумма — от них считается журнал
+let stateSum = null, lastRevId = null; // сумма данных в облаке и заголовок последней известной метки
+let cloudTimer, cloudAt = 0, syncing = null, syncAgain = false, cloudBroken = 0, readOnce = false;
+let badRev = null, badRevAt = 0, mixedRead = false; // несошедшийся снимок: ждём дописи или признаём смесь
+let pollTimer = null, pollDelay = POLL_MS, compactTimer = null;
+let readMs = 0, writeMs = 0, writeCalls = 0; // последние чтение и запись — видно в «Хранение»
+let cloudErr = null; // последняя ошибка облака (текст и время) — тоже видно в «Хранение»
 const noteCloudErr = (e) => { cloudErr = { msg: String((e && e.message) || e), at: Date.now() }; };
-// Живая сверка. Каждая запись ставит метку rev = «заголовок|предыдущий заголовок|изменение», где заголовок —
-// время-случайное-версия-контрольная сумма всех данных, а изменение — сами изменившиеся элементы (если коротко).
-// Пока Rocky на экране, другие устройства раз в POLL_MS читают только метку: обычно в ней уже есть всё изменение,
-// и отдельное чтение данных не нужно. Каждый запрос к облаку Telegram — поход на его сервер (~0,3–0,6 с),
-// поэтому запросов на одно изменение минимум: запись — один параллельный заход, приём — сама проверка метки.
-const POLL_MS = 500, POLL_MAX = 8000, DELTA_MAX = 3000;
-let lastRevId = null, pollTimer = null, pollDelay = POLL_MS;
-let cloudItems = null; // элементы, как они сейчас лежат в облаке: ключ → содержимое (из них считается изменение)
-const parseRev = (rev) => {
-  const a = rev.indexOf('|'), b = a < 0 ? -1 : rev.indexOf('|', a + 1); // в изменении тоже может быть «|» — режем по первым двум
-  return { head: a < 0 ? rev : rev.slice(0, a), prev: a < 0 ? '' : rev.slice(a + 1, b < 0 ? undefined : b), delta: b < 0 ? '' : rev.slice(b + 1) };
-};
-class PartialRead extends Error {} // прочитали посреди чужой записи — данные ещё не все
+class PartialRead extends Error {} // прочитали снимок посреди чужой записи
 const cs = (method, ...args) => new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('timeout')), 10000);
   cloud[method](...args, (err, val) => { clearTimeout(timer); if (err) reject(new Error(err)); else resolve(val); });
 });
+const sumOf = (head) => (head || '').split('-')[3] || null;
+// метка: «заголовок|сумма снимка|журнал»; в журнале тоже бывает «|» — режем по первым двум.
+// Метка версий до 1.4.6 («заголовок|прошлый заголовок|…») — без журнала, снимок сверяется по сумме из заголовка
+function parseRev(rev) {
+  const a = rev.indexOf('|'), b = a < 0 ? -1 : rev.indexOf('|', a + 1);
+  const head = a < 0 ? rev : rev.slice(0, a), snap = a < 0 ? '' : rev.slice(a + 1, b < 0 ? undefined : b);
+  if (!snap || snap.includes('-')) return { head, snap: sumOf(head), journal: '' };
+  return { head, snap, journal: b < 0 ? '' : rev.slice(b + 1) };
+}
 // Раскладка всегда в одном порядке (элементы по id, удалённое по ключу): одинаковые данные дают одинаковый текст
 // на любом устройстве. Иначе устройства считали бы облако «изменившимся» и перезаписывали его друг за другом.
 function cloudPack(d) {
@@ -1167,7 +1177,7 @@ function cloudUnpack(keys) {
   const m = part('m');
   return { tasks: part('t'), notes: part('n'), done: part('d'), deleted: m.deleted || {}, river: m.river || null, nextId: m.nextId || 100 };
 }
-// контрольная сумма записи (FNV-1a) по описи и кускам — так читающий узнаёт, долетела ли запись целиком
+// контрольная сумма (FNV-1a) по описи и кускам
 const idxKeys = (idxRaw) => { const idx = JSON.parse(idxRaw); return ['idx', ...['t', 'n', 'd', 'm'].flatMap((p) => Array.from({ length: idx[p] }, (_, i) => p + i))]; };
 function packSum(keys, names) {
   let h = 0x811c9dc5;
@@ -1177,6 +1187,31 @@ function packSum(keys, names) {
   }
   return (h >>> 0).toString(36);
 }
+const dataSum = (d) => { const k = cloudPack(d); return packSum(k, Object.keys(k)); };
+// элементы данных по ключам — чтобы найти, чем данные отличаются от снимка
+function itemsMap(d) {
+  const m = new Map([['river', JSON.stringify(d.river || null)], ['nextId', String(d.nextId)]]);
+  for (const [kind, p] of Object.entries(KINDS)) for (const it of d[kind]) m.set(p + ':' + it.id, JSON.stringify(it));
+  for (const [k, ts] of Object.entries(d.deleted || {})) m.set('x:' + k, String(ts));
+  return m;
+}
+// журнал: всё, чем данные отличаются от снимка в облаке. Он накопительный — поэтому устройство, пропустившее
+// несколько записей, всё равно получает всё сразу
+function makeJournal(d) {
+  const j = { t: [], n: [], d: [], x: {} };
+  let any = false;
+  for (const [kind, p] of Object.entries(KINDS)) for (const it of d[kind]) {
+    if (snapItems.get(p + ':' + it.id) !== JSON.stringify(it)) { j[p].push(it); any = true; }
+  }
+  for (const [k, ts] of Object.entries(d.deleted || {})) if (snapItems.get('x:' + k) !== String(ts)) { j.x[k] = ts; any = true; }
+  if (snapItems.get('river') !== JSON.stringify(d.river || null)) { j.r = d.river; any = true; }
+  if (snapItems.get('nextId') !== String(d.nextId)) { j.i = d.nextId; any = true; }
+  return any ? JSON.stringify(j) : '';
+}
+const journalPart = (s) => {
+  const x = JSON.parse(s);
+  return { tasks: x.t || [], notes: x.n || [], done: x.d || [], deleted: x.x || {}, river: x.r === undefined ? null : x.r, nextId: x.i || 0 };
+};
 async function cloudRead() {
   const t0 = Date.now();
   let keys;
@@ -1186,68 +1221,62 @@ async function cloudRead() {
   } else { // дальше — одним запросом: опись, метка и куски по последней известной описи
     keys = await cs('getItems', [...new Set(['idx', 'rev', ...Object.keys(cloudKeys)])]);
     if (keys.idx) {
-      const missing = idxKeys(keys.idx).filter((k) => !(k in keys)); // данные выросли — докачать новые куски
+      const missing = idxKeys(keys.idx).filter((k) => !(k in keys)); // снимок вырос — докачать новые куски
       if (missing.length) Object.assign(keys, await cs('getItems', missing));
     }
   }
-  cloudKeys = Object.fromEntries(Object.entries(keys).filter(([, v]) => v !== '')); // пустое значение — ключа нет
   readOnce = true; readMs = Date.now() - t0;
-  const head = parseRev(keys.rev || '').head || null;
-  if (!keys.idx) { lastRevId = head; cloudItems = null; return null; } // в облаке пусто
-  const sum = (head || '').split('-')[3];
-  if (sum && packSum(keys, idxKeys(keys.idx)) !== sum) {
-    // Сумма не сошлась. Впервые для этой метки — чужая запись, скорее всего, ещё в пути: перечитаем на следующей
-    // проверке. Та же метка второй раз — это не «в пути», а смесь двух одновременных записей: берём прочитанное
-    // (объединение ничего не теряет) — сверка ниже допишет целую версию.
-    if (keys.rev !== badRev) { badRev = keys.rev; throw new PartialRead(); }
+  const { head, snap, journal } = parseRev(keys.rev || '');
+  if (!keys.idx) { // в облаке пусто
+    cloudKeys = {}; snapItems = null; snapSum = null; stateSum = null; lastRevId = head || null;
+    return null;
+  }
+  const chunkSum = packSum(keys, idxKeys(keys.idx));
+  if (snap && chunkSum !== snap) {
+    // Снимок не совпал с меткой. Обычно это чужая перепись снимка в пути (куски пишутся до метки) — перечитаем
+    // на следующей проверке. Если так и висит дольше MIXED_AFTER_MS — это смесь двух одновременных переписей:
+    // берём прочитанное (объединение ничего не теряет) и переписываем снимок целиком.
+    if (keys.rev !== badRev) { badRev = keys.rev; badRevAt = Date.now(); throw new PartialRead(); }
+    if (Date.now() - badRevAt < MIXED_AFTER_MS) throw new PartialRead();
     mixedRead = true;
   }
   badRev = null;
-  lastRevId = head;
-  try { updateTo(JSON.parse(keys.idx).app); } catch (e) { /* опись разберёт cloudUnpack ниже */ }
-  const data = cloudUnpack(keys);
-  cloudItems = itemsMap(data);
-  return data;
+  cloudKeys = Object.fromEntries(Object.entries(keys).filter(([k, v]) => v !== '' && k !== 'rev'));
+  const base = cloudUnpack(keys);
+  snapItems = itemsMap(base); snapSum = chunkSum;
+  lastRevId = head || null; stateSum = sumOf(head) || chunkSum;
+  try { updateTo(JSON.parse(keys.idx).app); } catch (e) { /* опись уже разобрана выше */ }
+  return journal ? mergeData(base, journalPart(journal)) : base; // данные = снимок + журнал
 }
-// элементы данных по ключам — чтобы найти, что именно изменилось относительно облака
-function itemsMap(d) {
-  const m = new Map([['river', JSON.stringify(d.river || null)], ['nextId', String(d.nextId)]]);
-  for (const [kind, p] of Object.entries(KINDS)) for (const it of d[kind]) m.set(p + ':' + it.id, JSON.stringify(it));
-  for (const [k, ts] of Object.entries(d.deleted || {})) m.set('x:' + k, String(ts));
-  return m;
-}
-// изменение относительно облака: изменившиеся элементы и новые отметки удаления; длинное — не кладём
-function makeDelta(d) {
-  if (!cloudItems) return '';
-  const delta = { t: [], n: [], d: [], x: {} };
-  for (const [kind, p] of Object.entries(KINDS)) for (const it of d[kind]) {
-    if (cloudItems.get(p + ':' + it.id) !== JSON.stringify(it)) delta[p].push(it);
-  }
-  for (const [k, ts] of Object.entries(d.deleted || {})) if (cloudItems.get('x:' + k) !== String(ts)) delta.x[k] = ts;
-  if (cloudItems.get('river') !== JSON.stringify(d.river || null)) delta.r = d.river;
-  delta.i = d.nextId;
-  const s = JSON.stringify(delta);
-  return s.length <= DELTA_MAX ? s : '';
-}
-async function cloudWrite(keys, d = db, force = false) {
+// force — переписать снимок целиком, все куски (после смеси двух записей или потерянного куска);
+// snapshot — переписать снимок (изменившиеся куски), даже если правка влезает в журнал (сжатие в затишье)
+async function cloudWrite(d = db, force = false, snapshot = false) {
+  const keys = cloudPack(d);
   if (Object.keys(keys).length > MAX_KEYS) throw new Error('cloud full');
-  // force — после смеси двух записей: пишем всё и новую метку, даже если наши куски совпали с остатками в облаке.
-  // Иначе правка другого устройства тихо выпадала: он видел свою метку, мы — «нечего писать», оба считали себя в курсе
-  const changed = Object.keys(keys).filter((k) => force || cloudKeys[k] !== keys[k]);
-  const stale = Object.keys(cloudKeys).filter((k) => !(k in keys) && k !== 'rev');
-  if (!changed.length && !stale.length) return;
+  const sum = packSum(keys, Object.keys(keys));
+  if (!force && !snapshot && lastRevId && sum === stateSum) return; // в облаке ровно это
+  if (snapshot && !force && sum === snapSum) return; // снимок и так равен данным
   const t0 = Date.now();
-  const head = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${APP_VERSION}-${packSum(keys, Object.keys(keys))}`;
-  const rev = `${head}|${lastRevId || ''}|${makeDelta(d)}`;
-  // всё одним заходом, параллельно: если кто-то прочитает посреди записи, сумма в метке не сойдётся — он перечитает
-  await Promise.all([
-    ...changed.map((k) => cs('setItem', k, keys[k])),
-    ...(stale.length ? [cs('removeItems', stale)] : []),
-    cs('setItem', 'rev', rev),
-  ]);
-  changed.forEach((k) => { cloudKeys[k] = keys[k]; });
-  stale.forEach((k) => delete cloudKeys[k]);
-  cloudKeys.rev = rev; lastRevId = head; cloudItems = itemsMap(d);
+  const head = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${APP_VERSION}-${sum}`;
+  const journal = !force && !snapshot && snapItems && snapSum ? makeJournal(d) : null;
+  if (journal !== null && journal.length <= JOURNAL_MAX) {
+    // обычная правка: один запрос — метка с журналом
+    await cs('setItem', 'rev', `${head}|${snapSum}|${journal}`);
+    writeCalls = 1;
+    if (journal.length > JOURNAL_COMPACT) scheduleCompact();
+  } else {
+    // перепись снимка: сначала куски (только изменившиеся) и опись, метка с пустым журналом — последней,
+    // чтобы увидевшие новую метку читали уже целый снимок
+    const changed = Object.keys(keys).filter((k) => force || cloudKeys[k] !== keys[k]);
+    const stale = Object.keys(cloudKeys).filter((k) => !(k in keys));
+    await Promise.all([...changed.map((k) => cs('setItem', k, keys[k])), ...(stale.length ? [cs('removeItems', stale)] : [])]);
+    changed.forEach((k) => { cloudKeys[k] = keys[k]; });
+    stale.forEach((k) => delete cloudKeys[k]);
+    await cs('setItem', 'rev', `${head}|${sum}|`);
+    snapItems = itemsMap(d); snapSum = sum;
+    writeCalls = changed.length + (stale.length ? 1 : 0) + 1;
+  }
+  lastRevId = head; stateSum = sum;
   writeMs = Date.now() - t0;
 }
 // слияние двух копий: по каждому элементу побеждает более поздняя правка; удалённое не возвращается,
@@ -1289,7 +1318,7 @@ function applyMerged(m) {
 }
 // mode 'local' — после своей правки: если облако в этом сеансе уже читали, пишем сразу, без чтения.
 // Свежесть обеспечивает проверка раз в полсекунды; если кто-то успел записать раньше, копии сойдутся
-// на ближайшей проверке — каждое устройство при чтении объединяет облако со своим и дописывает недостающее.
+// на ближайшей проверке — каждое устройство объединяет облако со своим и дописывает недостающее.
 function cloudSync(mode) {
   if (!cloud) return Promise.resolve();
   if (syncing || drag) { syncAgain = true; return syncing || Promise.resolve(); } // во время переноса карточки не трогаем данные
@@ -1307,16 +1336,18 @@ function cloudSync(mode) {
         } else if (remote) applyMerged(mergeData(db, remote));
       }
       const force = mixedRead; mixedRead = false;
-      if (remote || !db.fresh || 'idx' in cloudKeys) await cloudWrite(cloudPack(db), db, force); // стартовые примеры в пустое облако не отправляем
+      if (remote || !db.fresh || snapSum) await cloudWrite(db, force); // стартовые примеры в пустое облако не отправляем
       if (!db.synced) { db.synced = true; saveLocal(); }
       cloudAt = Date.now(); cloudBroken = 0;
     } catch (e) {
       if (!(e instanceof PartialRead)) noteCloudErr(e);
       // Нет сети или облако недоступно — локальная копия цела, повторим при следующей правке или проверке.
-      // Чужая запись в пути (PartialRead) — метка не принята, перечитаем на ближайшей проверке.
-      // Облако дважды не читается вовсе (кусок потерян) — перезаписываем своей копией, остальные дообъединятся.
-      if (e instanceof SyntaxError && ++cloudBroken >= 2) {
-        try { await cloudWrite(cloudPack(db)); cloudBroken = 0; cloudAt = Date.now(); } catch (_) { /* в следующий раз */ }
+      // Чужая перепись снимка в пути (PartialRead) — метка не принята, перечитаем на ближайшей проверке.
+      // Облако дважды не читается вовсе (кусок потерян) — переписываем снимок своей копией, остальные дообъединятся.
+      // (признанная смесь, которая к тому же не читается, — сразу)
+      if (e instanceof SyntaxError && (mixedRead || ++cloudBroken >= 2)) {
+        mixedRead = false;
+        try { await cloudWrite(db, true); cloudBroken = 0; cloudAt = Date.now(); } catch (_) { /* в следующий раз */ }
       }
     }
     syncing = null;
@@ -1347,12 +1378,12 @@ async function cloudPoll() {
     if (!syncing && !drag) {
       const rev = await cs('getItem', 'rev');
       if (rev) {
-        const { head, prev, delta } = parseRev(rev);
+        const { head, snap, journal } = parseRev(rev);
         updateTo(head.split('-')[2]);
         if (head !== lastRevId) { // кто-то другой записал
-          // изменение пришло прямо в метке и оно ровно следующее после того, что у нас есть — применяем сразу;
-          // иначе (пропустили запись, изменение длинное, у нас самих что-то не отправлено) — читаем всё
-          if (delta && prev && prev === lastRevId && !cloudTimer && !syncing) applyDelta(head, delta);
+          // снимок тот же, что у нас, — всё изменение уже в журнале метки, читать облако не нужно;
+          // снимок переписан (или у нас ещё не отправлено своё) — полная сверка
+          if (snap && snap === snapSum && rev.indexOf('|') > 0 && !cloudTimer && !syncing) applyJournal(head, journal);
           else await cloudSync();
         }
       }
@@ -1364,31 +1395,38 @@ async function cloudPoll() {
   }
   schedulePoll(Math.max(0, pollDelay - (Date.now() - started))); // раз в полсекунды от начала до начала
 }
-function applyDelta(head, deltaStr) {
-  let x;
-  try { x = JSON.parse(deltaStr); } catch (e) { cloudSync(); return; }
-  const part = { tasks: x.t || [], notes: x.n || [], done: x.d || [], deleted: x.x || {}, river: x.r === undefined ? null : x.r, nextId: x.i || 0 };
-  applyMerged(mergeData(db, part));
-  lastRevId = head;
-  // Сверка: после применения наши данные должны совпасть с облаком до байта (сумма в заголовке).
-  // Совпали — знаем, что лежит в облаке, без чтения. Нет — дочитываем всё в фоне (экран уже обновлён).
-  const mine = cloudPack(db), sum = head.split('-')[3];
-  if (sum && packSum(mine, Object.keys(mine)) === sum) { cloudKeys = { ...mine, rev: cloudKeys.rev }; cloudItems = itemsMap(db); }
-  else cloudSync();
+function applyJournal(head, journal) {
+  let part = null;
+  try { if (journal) part = journalPart(journal); } catch (e) { cloudSync(); return; }
+  if (part) applyMerged(mergeData(db, part));
+  lastRevId = head; stateSum = sumOf(head);
+  // У нас есть снимок и весь журнал — значит, всё, что в облаке. Если наши данные всё равно не совпали по сумме,
+  // у нас есть своё, чего в облаке нет (например, записали одновременно), — дописываем: копии сойдутся
+  if (dataSum(db) !== stateSum) cloudLater();
 }
 function schedulePoll(ms = pollDelay) {
   if (cloud && !pollTimer && document.visibilityState === 'visible') pollTimer = setTimeout(cloudPoll, ms);
 }
+// сжатие: журнал разросся — переписать снимок, когда правок нет COMPACT_MS (каждая правка откладывает)
+function scheduleCompact() {
+  clearTimeout(compactTimer);
+  compactTimer = setTimeout(() => {
+    compactTimer = null;
+    if (!cloud || syncing || drag || cloudTimer) { scheduleCompact(); return; }
+    syncing = cloudWrite(db, false, true).catch(noteCloudErr).finally(() => { syncing = null; if (syncAgain) { syncAgain = false; cloudLater(); } });
+  }, COMPACT_MS);
+}
 function cloudLater(ms = 50) { // короткая пауза — несколько быстрых нажатий уходят одной записью
   if (!cloud) return;
   clearTimeout(cloudTimer);
+  if (compactTimer) scheduleCompact(); // идут правки — сжатие подождёт затишья
   cloudTimer = setTimeout(() => { cloudTimer = null; cloudSync('local'); }, ms);
 }
 function renderSync() { $('sync-val').textContent = cloud ? 'Облако Telegram' : 'Только телефон'; }
 function syncInfo() {
   toast(cloud ? 'Дела и камушки хранятся в облаке Telegram и видны на всех твоих устройствах.' +
     (cloudAt ? ' Сверено в ' + timeStr(new Date(cloudAt)) + '.' : '') +
-    (writeMs || readMs ? ` Запись ${(writeMs / 1000).toFixed(1)} с, чтение ${(readMs / 1000).toFixed(1)} с.` : '') +
+    (writeMs || readMs ? ` Запись ${(writeMs / 1000).toFixed(1)} с (запросов: ${writeCalls}), чтение ${(readMs / 1000).toFixed(1)} с.` : '') +
     (cloudErr ? ` Последняя ошибка облака в ${timeStr(new Date(cloudErr.at))}: ${cloudErr.msg}.` : '')
     : 'Облако работает, когда Rocky открыт в Telegram. Сейчас данные только на этом устройстве.');
 }

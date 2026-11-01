@@ -18,6 +18,7 @@
   const mock = {
     setItem(k, v, cb) {
       if (offline) return answer(cb, 'NETWORK');
+      sets++;
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(k)) violations.push('ключ ' + k);
       if (String(v).length > 4096) violations.push('длина ' + k + ' = ' + String(v).length);
       if (!(k in store) && Object.keys(store).length >= 1024) violations.push('больше 1024 ключей');
@@ -28,9 +29,11 @@
     getKeys(cb) { offline ? answer(cb, 'NETWORK') : answer(cb, null, Object.keys(store)); },
     removeItems(ks, cb) { if (offline) return answer(cb, 'NETWORK'); ks.forEach((k) => delete store[k]); answer(cb, null, true); },
   };
-  const remote = () => cloudUnpack(store);                      // что лежит в облаке
+  // что лежит в облаке: снимок плюс журнал из метки
+  const remote = () => { const base = cloudUnpack(store); const { journal } = parseRev(store.rev || ''); return journal ? mergeData(base, journalPart(journal)) : base; };
+  let sets = 0; // сколько запросов на запись ушло в облако
   const fromDevice2 = (edit) => { const d = remote(); edit(d); store = cloudPack(d); }; // правка «с компьютера»
-  const userAction = async (fn) => { fn(); save(); clearTimeout(cloudTimer); await cloudSync(); };
+  const userAction = async (fn) => { fn(); save(); clearTimeout(cloudTimer); cloudTimer = null; await cloudSync(); };
   const titles = (kind) => db[kind].map((x) => x.title);
 
   // 1. первая синхронизация: телефон с данными, облако пустое
@@ -65,14 +68,14 @@
 
   // 5. удаление с «Отменить»
   const victim = db.tasks.find((t) => t.title === 'Позвонить маме');
-  removeWithUndo('tasks', victim.id, 'Задача удалена'); clearTimeout(cloudTimer); await cloudSync();
+  removeWithUndo('tasks', victim.id, 'Задача удалена'); clearTimeout(cloudTimer); cloudTimer = null; await cloudSync();
   const goneInCloud = !remote().tasks.some((t) => t.id === victim.id);
-  undoDelete(); clearTimeout(cloudTimer); await cloudSync();
+  undoDelete(); clearTimeout(cloudTimer); cloudTimer = null; await cloudSync();
   check('удаление уходит в облако, «Отменить» возвращает и там', goneInCloud && remote().tasks.some((t) => t.id === victim.id) && titles('tasks').includes('Позвонить маме'));
 
   // 6. выполнение регулярного и история
   const reg = db.tasks.find((t) => t.rep === 'daily');
-  completeTask(reg.id); await sleep(500); clearTimeout(cloudTimer); await cloudSync();
+  completeTask(reg.id); await sleep(500); clearTimeout(cloudTimer); cloudTimer = null; await cloudSync();
   check('выполненное и новая дата регулярного — в облаке',
     remote().done.some((d) => d.taskId === reg.id) && remote().tasks.find((t) => t.id === reg.id).due === reg.due);
 
@@ -117,18 +120,44 @@
   offline = false; await cloudSync();
   check('без сети: локально сохранено; сеть вернулась — ушло в облако', keptOffline && remote().tasks.some((t) => t.title === 'Без сети'));
 
-  // 9. данные уменьшились — лишние куски из облака удалены
+  // 9. удаление большой заметки уходит в журнал одним запросом; при переписи снимка лишние куски убираются
   const keysBefore = Object.keys(store).length;
+  sets = 0;
   await userAction(() => { db.notes = db.notes.filter((n) => n.title !== 'Большая'); });
-  check('удалили большую заметку — лишние куски убраны из облака', Object.keys(store).length < keysBefore && Object.keys(store).every((k) => k === 'idx' || k === 'rev' || /^[tndm]\d+$/.test(k)));
+  const oneRequest = sets === 1 && !remote().notes.some((n) => n.title === 'Большая');
+  await cloudWrite(db, true);
+  check('удалили большую заметку: один запрос; при переписи снимка лишние куски убраны',
+    oneRequest && Object.keys(store).length < keysBefore && Object.keys(store).every((k) => k === 'idx' || k === 'rev' || /^[tndm]\d+$/.test(k)) &&
+    parseRev(store.rev).journal === '');
 
   // 10. облако повреждено (кусок записан наполовину): локальные данные не теряются, со второй попытки облако чинится
   const localBefore = JSON.stringify(db.tasks);
   delete store.t0;
   await cloudSync();
   const intact = JSON.stringify(db.tasks) === localBefore;
-  for (let i = 0; i < 8 && !store.t0; i++) await cloudSync(); // даём «чужой записи» шанс долететь, потом чиним своей копией
+  badRevAt -= MIXED_AFTER_MS + 1000; // «прошло» больше 10 с — значит, не запись в пути, а потерянный кусок
+  for (let i = 0; i < 3 && !store.t0; i++) await cloudSync();
   check('повреждённое облако: локальное цело, облако восстановлено', intact && JSON.stringify(remote().tasks) === JSON.stringify(db.tasks));
+
+  // 10б. обычная правка — один запрос к облаку; журнал накопительный — пропустивший записи получит всё
+  sets = 0;
+  await userAction(() => { db.tasks.push({ id: newId(), title: 'Журнал 1', due: null, rep: 'never', pos: -101 }); });
+  const one = sets;
+  await userAction(() => { db.tasks.push({ id: newId(), title: 'Журнал 2', due: null, rep: 'never', pos: -102 }); });
+  const j = journalPart(parseRev(store.rev).journal);
+  check(`обычная правка — один запрос к облаку (было ${one})`, one === 1 && sets === 2);
+  check('журнал накопительный: в последней метке обе правки', ['Журнал 1', 'Журнал 2'].every((t) => j.tasks.some((x) => x.title === t)));
+  // журнал средний — правка уходит журналом сразу, снимок переписывается в затишье
+  sets = 0;
+  await userAction(() => { for (let i = 0; i < 18; i++) db.tasks.push({ id: newId(), title: 'Много правок ' + i + ' ' + 'x'.repeat(80), due: null, rep: 'never', pos: -200 - i }); });
+  const viaJournal = sets === 1 && parseRev(store.rev).journal.length > JOURNAL_COMPACT;
+  await sleep(COMPACT_MS + 1500);
+  check('журнал разросся: правка ушла одним запросом, снимок переписан в затишье, журнал пуст',
+    viaJournal && parseRev(store.rev).journal === '' && cloudUnpack(store).tasks.filter((t) => t.title.startsWith('Много правок')).length === 18);
+  // журнал не влезает в метку — снимок переписывается сразу
+  await userAction(() => { for (let i = 0; i < 40; i++) db.tasks.push({ id: newId(), title: 'Очень много ' + i + ' ' + 'y'.repeat(80), due: null, rep: 'never', pos: -300 - i }); });
+  check('журнал не влезает в метку — снимок переписан сразу',
+    parseRev(store.rev).journal === '' && cloudUnpack(store).tasks.filter((t) => t.title.startsWith('Очень много')).length === 40);
 
   // 11. id не совпадают между устройствами
   const ids = [newId(), newId(), newId()];
