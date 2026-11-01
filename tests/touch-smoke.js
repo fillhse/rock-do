@@ -74,6 +74,8 @@
   await tap(at(regCard(reg0).querySelector('.checkbox'))); await sleep(500);
   check('регулярное: отметил — исчезает из «Регулярных» до конца дня, запись в «Сделанных»',
     !regTitles().includes(reg0) && !titles().includes(reg0) && db.done.length === doneBefore + 1 && !!doneWrap(reg0));
+  check('регулярные все сделаны — раздел остаётся: «Регулярные 0» и «На сегодня всё сделано»',
+    head('#reg-list').replace(/\s+/g, ' ').trim() === 'Регулярные 0' && /всё сделано/.test(document.querySelector('#reg-list .sec-note').textContent));
   await tap(at(doneWrap(reg0).querySelector('.checkbox')));
   check('регулярное: отмена выполнения возвращает его в «Регулярные»', regTitles().includes(reg0) && !doneWrap(reg0));
   await tap(at(regCard(reg0).querySelector('.checkbox'))); await sleep(500);
@@ -82,6 +84,7 @@
   db.tasks.push({ id: 800, title: 'Ждёт своего дня', due: Date.now() + 2 * 86400e3, rep: 'daily', pos: -100 }); renderTasks();
   const doneNow = db.done.length, waitTitle = 'Ждёт своего дня';
   await tap(at(regCard(waitTitle).querySelector('.checkbox')));
+  check('ждущее своего дня не в счётчике: «Регулярные 0», карточка видна', head('#reg-list').replace(/\s+/g, ' ').trim() === 'Регулярные 0' && regTitles().includes(waitTitle));
   check('регулярное: заранее, до своего дня, не отмечается', regTitles().includes(waitTitle) && regCard(waitTitle).classList.contains('wait') && db.done.length === doneNow);
   const mine0 = titles()[0], m0 = document.querySelector('#task-list .card.task b'), pm = at(m0, 20);
   const pr = at(regCard(waitTitle));
