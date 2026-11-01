@@ -9,6 +9,35 @@
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="icon" type="image/png" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<script>
+/* Telegram Mini App: SDK грузим только внутри Telegram — вне его приложение не зависит от сети */
+const IN_TG = /tgWebApp/.test(location.hash) || !!window.TelegramWebviewProxy;
+if (IN_TG) {
+  document.documentElement.classList.add('tg');
+  const s = document.createElement('script');
+  s.src = 'https://telegram.org/js/telegram-web-app.js';
+  s.onload = () => {
+    const tg = window.Telegram && Telegram.WebApp;
+    if (!tg) return;
+    try {
+      tg.ready(); tg.expand();
+      // иначе свайп вниз при перетаскивании карточек и прокрутке колёс закрывает приложение
+      if (tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes();
+      if (tg.isVersionAtLeast('6.1')) { tg.setHeaderColor('#030912'); tg.setBackgroundColor('#030912'); }
+      if (tg.isVersionAtLeast('7.10')) tg.setBottomBarColor('#050b14');
+    } catch (e) {}
+  };
+  document.head.appendChild(s);
+}
+/* вибрация: в Telegram — его хаптика (работает и на iPhone), иначе — navigator.vibrate */
+function haptic(kind) {
+  const hf = window.Telegram && Telegram.WebApp && Telegram.WebApp.HapticFeedback;
+  try {
+    if (IN_TG && hf) kind === 'success' ? hf.notificationOccurred('success') : hf.impactOccurred('medium');
+    else if (navigator.vibrate) navigator.vibrate(kind === 'success' ? 15 : 25);
+  } catch (e) {}
+}
+</script>
 <style>
 /* ===== rock do, тёмная тема по макету (автономное демо без backend) ===== */
 :root{
@@ -26,6 +55,9 @@ body{background:#0b0e16;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
   background:linear-gradient(180deg,var(--bg1),var(--bg2));
   box-shadow:0 0 0 10px #11141f,0 30px 80px rgba(0,0,0,.7)}
 @media (max-width:430px){ .phone{width:100%;height:100%;max-height:none;border-radius:0;box-shadow:none} }
+/* в Telegram (в т.ч. Desktop с широким окном) — всегда на весь экран, без рамки */
+html.tg .phone{width:100%;height:100%;max-height:none;border-radius:0;box-shadow:none}
+html.tg .demo-note{display:none}
 
 .screen{position:absolute;inset:0;overflow-y:auto;padding:18px 16px 116px;display:none}
 .screen.on{display:block}
@@ -745,6 +777,7 @@ function completeTask(id) {
   const t = db.tasks.find((x) => x.id === id);
   const card = document.getElementById('task-' + id);
   if (!t || !card || card.classList.contains('done')) return; // двойной тап во время анимации
+  haptic('success');
   document.getElementById('cb-' + id).classList.add('on');
   document.getElementById('cb-' + id).textContent = '✓';
   document.getElementById('task-' + id).classList.add('done');
@@ -1098,7 +1131,7 @@ function pressStart(e, id, type) {
 }
 
 function startDrag(card, id, type, px, py) {
-  if (navigator.vibrate) navigator.vibrate(25);
+  haptic('drag');
   const r = card.getBoundingClientRect();
   const ghost = card.cloneNode(true); // «поднятая» копия следует за пальцем
   ghost.removeAttribute('id'); // иначе дублирует id оригинала и ломает FLIP
