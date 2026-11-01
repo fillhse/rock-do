@@ -491,7 +491,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.8.3';
+const APP_VERSION = '1.8.4';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -814,6 +814,7 @@ function wheelInit(el, items, selIdx, onSel, wrap) {
   let lit = null;
   const light = (gi) => { if (cells[gi] === lit) return; if (lit) lit.classList.remove('sel'); (lit = cells[gi]).classList.add('sel'); };
   const apply = (gi) => { light(gi); onSel(gi % len); };
+  el.read = () => { clearTimeout(el._t); apply(centered()); }; // засчитать то, что под рамкой, прямо сейчас
   el.onscroll = () => {
     if (wrap && (el.scrollTop < 2 * period || el.scrollTop > (reps - 2) * period)) el.scrollTop = mid * period + (el.scrollTop % period);
     light(centered());
@@ -833,7 +834,9 @@ let pDay = 0, pHour = 10, pMin = 0, repBefore = 'never';
 const two = (n) => String(n).padStart(2, '0');
 function openPicker() {
   repBefore = pickRep; // ✕ отменяет повтор, выбранный в этом окне
-  const init = new Date(pickDue || todayAt(10, 0) + DAY);
+  // новое дело: сегодня, ближайший целый час (минуты 00); дело со сроком — его срок
+  const next = new Date(); next.setHours(next.getHours() + 1, 0, 0, 0);
+  const init = new Date(pickDue || next);
   const today = new Date().setHours(0, 0, 0, 0);
   const days = Array.from({ length: DAYS_PAST + DAYS_FUT + 1 }, (_, k) => {
     const i = k - DAYS_PAST, d = new Date(today); d.setDate(d.getDate() + i);
@@ -860,12 +863,13 @@ function pickerSummary() {
   $('p-summary').textContent = shortDate(d) + (pHour === null ? ', без времени' : ' ' + timeStr(d));
 }
 function pickOk() {
+  ['w-day', 'w-hour', 'w-min'].forEach((id) => $(id).read()); // нажали OK, пока колесо ещё доезжало, — берём то, что под рамкой
   let d = pickerDate();
-  const allDay = pHour === null;
-  if (allDay ? d < new Date().setHours(0, 0, 0, 0) : d.getTime() <= Date.now()) { // в прошлое не ставим
-    if (allDay) d = new Date(new Date().setHours(0, 0, 0, 0));
-    else { d = new Date(Date.now() + 3600e3); d.setSeconds(0, 0); }
-    toast(allDay ? 'Этот день уже прошёл — поставил на сегодня.' : 'Это время уже прошло — выбрал ближайшее.');
+  const allDay = pHour === null, today = new Date().setHours(0, 0, 0, 0);
+  if (allDay ? d < today : d.getTime() <= Date.now()) { // в прошлое не ставим: выбранное время — в ближайший день, когда оно будет
+    if (d < today) { const t = new Date(today); if (!allDay) t.setHours(pHour, pMin); d = t; }
+    if (!allDay && d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
+    toast(allDay ? 'Этот день уже прошёл — поставил на сегодня.' : 'Это время уже прошло — поставил на ' + fmtDue(d.getTime()) + '.');
   }
   const days = repDays(pickRep); // первый раз — в ближайший из выбранных дней
   while (days.length && !days.includes(isoDay(d))) d.setDate(d.getDate() + 1);

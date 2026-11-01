@@ -19,12 +19,31 @@
   async function newTask(title) { openTaskEditor(null); await sleep(50); document.getElementById('t-title').value = title; onTitleInput(); openPicker(); await sleep(80); }
   async function saveIt() { pickOk(); await sleep(30); saveTask(); await sleep(50); return db.tasks.find((t) => t.id === Math.max(...db.tasks.map((x) => x.id))); }
 
-  // как раньше: дата, час, минуты — по умолчанию завтра 10:00
+  // по умолчанию — ближайший целый час, минуты 00
+  const next = new Date(); next.setHours(next.getHours() + 1, 0, 0, 0);
+  const dayLabel = sameDay(next, Date.now()) ? 'Сегодня' : 'Завтра';
   await newTask('Ко времени');
-  check('окно как раньше: колёса Дата/Час/Минуты и «Повтор», по умолчанию завтра 10:00',
-    !!document.getElementById('w-day') && /10:00$/.test(summary()) && document.getElementById('p-rep-label').textContent === 'Никогда');
+  check('окно как раньше: колёса Дата/Час/Минуты и «Повтор», по умолчанию ближайший целый час, минуты 00',
+    !!document.getElementById('w-day') && summary().endsWith(timeStr(next)) && document.getElementById('p-rep-label').textContent === 'Никогда');
   let t = await saveIt();
-  check('сохранилось ко времени: завтра 10:00', !t.allDay && /Завтра 10:00/.test(fmtDue(t.due, t.allDay)));
+  check('сохранилось: ближайший целый час', !t.allDay && t.due === next.getTime());
+
+  // покрутил колесо и сразу «OK», пока оно доезжало — сохраняется то, что под рамкой
+  await newTask('Быстрый OK');
+  const wh = document.getElementById('w-hour'), wd = document.getElementById('w-day');
+  wd.scrollTop += 43 * 2; wh.scrollTop += 43 * 3; // без ожидания
+  const underH = +wh.querySelectorAll('.item')[Math.round(wh.scrollTop / 43)].textContent;
+  t = await saveIt();
+  check('быстрый OK после прокрутки — сохранились час и день под рамкой, а не прежние',
+    new Date(t.due).getHours() === underH && dayStart(t.due) === dayStart(next) + 2 * DAY);
+
+  // выбрал время, которое сегодня уже прошло, — в тот же час завтра, а не «сейчас»
+  if (new Date().getHours() > 0) {
+    await newTask('Прошедшее время');
+    tapWheel('w-day', 'Сегодня'); tapWheel('w-hour', '00'); tapWheel('w-min', '00'); await sleep(30);
+    t = await saveIt();
+    check('время сегодня уже прошло — поставлено на завтра в то же время', sameDay(t.due, Date.now() + DAY) && new Date(t.due).getHours() === 0 && new Date(t.due).getMinutes() === 0);
+  }
 
   // без времени — положение «—» на колесе часов
   await newTask('Без времени');
@@ -32,7 +51,7 @@
   tapWheel('w-hour', '—'); await sleep(40);
   check('час «—»: в заголовке «без времени», минуты приглушены', /без времени$/.test(summary()) && document.getElementById('wd-min').classList.contains('idle'));
   t = await saveIt();
-  check('сохранилось без времени: на камне «Завтра», без часов', t.allDay && fmtDue(t.due, true) === 'Завтра' && !/\d\d:\d\d/.test(document.getElementById('task-' + t.id).textContent));
+  check('сохранилось без времени: на камне «' + dayLabel + '», без часов', t.allDay && fmtDue(t.due, true) === dayLabel && !/\d\d:\d\d/.test(document.getElementById('task-' + t.id).textContent));
   openTaskEditor(t.id); await sleep(30); openPicker(); await sleep(80);
   check('открыл дело без времени — колесо часов снова на «—»', document.querySelector('#w-hour .item.sel').textContent === '—' && /без времени$/.test(summary()));
   tapWheel('w-hour', '09'); await sleep(40);
