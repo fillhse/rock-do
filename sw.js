@@ -30,7 +30,9 @@ self.addEventListener('fetch', (e) => {
   if (e.request.mode === 'navigate') {
     if (url.pathname !== APP_PAGE && url.pathname !== APP_PAGE + 'index.html') return; // чужие страницы не трогаем
     e.respondWith(caches.open(CACHE).then(async (c) => {
-      const fresh = fetch(e.request, { cache: 'no-cache' }).then((res) => { if (res.ok) c.put('./', res.clone()); return res; });
+      // по адресу, а не по самому запросу: запрос страницы (mode: navigate) нельзя пересобрать с настройками —
+      // fetch молча падает, и кэш страницы никогда бы не обновлялся
+      const fresh = fetch(url.href, { cache: 'no-cache' }).then((res) => { if (res.ok) c.put('./', res.clone()); return res; });
       const cached = await c.match('./');
       if (!cached) return fresh;
       e.waitUntil(fresh.catch(() => {}));
