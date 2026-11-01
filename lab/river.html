@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Rocky — концепт Речки</title>
+<style>
+/* Концепт «Речки»: камушек дня + совет Рокки по состоянию камня. Песочница — приложение не трогает.
+   Сверху — пульт для показа: время суток и состояние дел (в приложении их не будет). */
+:root{
+  --bg1:#030912; --bg2:#07131c; --card:rgba(255,255,255,.05);
+  --accent:#4e20c8; --accent2:#6f38ff; --orange:#ffa42e; --green:#4fd18b; --text:#eef0f6; --muted:#8b93a7; --radius:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{background:var(--bg1);color:var(--text);font-size:14px;overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;flex-direction:column}
+
+/* пульт показа */
+.ctl{flex:none;padding:8px 10px;background:#050c18;border-bottom:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;gap:6px}
+.ctl .row{display:flex;gap:5px;overflow-x:auto;scrollbar-width:none}
+.ctl .row::-webkit-scrollbar{display:none}
+.ctl .lbl{color:var(--muted);font-size:11px;align-self:center;flex:none;width:52px}
+.chip{flex:none;border:1px solid rgba(255,255,255,.12);background:transparent;color:var(--text);border-radius:999px;
+  padding:6px 11px;font:inherit;font-size:12px;cursor:pointer}
+.chip.on{background:var(--accent2);border-color:var(--accent2)}
+
+/* экран речки */
+.river{position:relative;flex:1;overflow:hidden;--side:max(16px, calc((100% - 448px) / 2))}
+.bg{position:absolute;inset:0;background-size:cover;background-position:center;transition:opacity .4s}
+.bg:after{content:'';position:absolute;inset:0;
+  background:linear-gradient(180deg,rgba(3,9,18,.84) 0%,rgba(3,9,18,.3) 18%,rgba(3,9,18,0) 34%,
+             rgba(3,9,18,.5) 52%,rgba(3,9,18,.9) 70%,rgba(3,9,18,.98) 100%)}
+.top{position:absolute;top:0;left:0;right:0;padding:16px var(--side) 0;z-index:2}
+.top h1{font-size:21px}
+.sub{color:var(--muted);font-size:12px;margin-top:2px}
+.pill{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:8px 14px;border-radius:22px;
+  background:rgba(10,14,24,.55);backdrop-filter:blur(8px);color:#ffd479;font-size:13px;font-weight:600}
+.streak{float:right;margin-top:10px;padding:8px 12px;border-radius:22px;background:rgba(10,14,24,.55);backdrop-filter:blur(8px);font-size:12px;color:var(--text)}
+.streak b{color:var(--orange)}
+.bottom{position:absolute;left:0;right:0;bottom:22px;padding:0 var(--side);z-index:2}
+.title{font-size:25px;font-weight:700;margin-bottom:6px;text-shadow:0 2px 14px rgba(0,0,0,.65)}
+.text{font-size:15px;line-height:1.55;color:#e8ebf4;white-space:pre-line;margin-bottom:14px;text-shadow:0 1px 10px rgba(0,0,0,.7)}
+.btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;border:none;cursor:pointer;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font:inherit;font-size:16px;font-weight:600;
+  padding:15px;border-radius:16px;margin-top:8px}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.dark{background:rgba(255,255,255,.08)}
+.btn img{width:22px}
+.hintline{color:var(--muted);font-size:12px;margin:-4px 0 8px}
+
+/* выбор камушка дня */
+.pebbles{display:flex;flex-direction:column;gap:7px;max-height:34vh;overflow-y:auto;margin-bottom:6px}
+.peb{display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:13px;background:rgba(10,14,24,.62);
+  border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(6px);cursor:pointer;transition:all .15s}
+.peb img{width:22px;opacity:.55;transition:all .15s}
+.peb b{font-weight:500;flex:1}
+.peb small{color:var(--orange);font-size:11px}
+.peb.on{border-color:var(--accent2);background:rgba(111,56,255,.28)}
+.peb.on img{opacity:1;transform:scale(1.15) rotate(-12deg)}
+
+/* камушек дня — карточка */
+.today{display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:14px;margin-bottom:12px;
+  background:rgba(10,14,24,.66);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(8px)}
+.today img{width:30px}
+.today .t{flex:1;min-width:0}
+.today .t small{display:block;color:var(--muted);font-size:11px;margin-bottom:2px}
+.today .t b{font-weight:600}
+.today .st{font-size:12px;font-weight:600;color:var(--muted)}
+.today.done{border-color:rgba(79,209,139,.5)}
+.today.done .st{color:var(--green)}
+
+/* бросок: камушек летит дугой, по воде круги */
+.fly{position:absolute;width:30px;z-index:5;pointer-events:none;left:50%;bottom:150px;
+  animation:fly 1s cubic-bezier(.3,.1,.5,1) forwards}
+@keyframes fly{0%{transform:translate(-50%,0) rotate(0) scale(1)}
+  45%{transform:translate(-10%,-190px) rotate(260deg) scale(.85)}
+  100%{transform:translate(25%,-120px) rotate(420deg) scale(.35);opacity:0}}
+.ripple{position:absolute;z-index:4;width:20px;height:8px;border:2px solid rgba(255,255,255,.7);border-radius:50%;
+  pointer-events:none;transform:translate(-50%,-50%) scale(0);animation:ripple 1.4s ease-out forwards}
+@keyframes ripple{to{transform:translate(-50%,-50%) scale(9);opacity:0}}
+.appear{animation:appear .6s ease both}
+@keyframes appear{from{opacity:0;transform:translateY(10px)}}
+</style>
+</head>
+<body>
+  <div class="ctl">
+    <div class="row"><span class="lbl">Время</span>
+      <button class="chip" data-h="8">утро</button><button class="chip" data-h="14">день</button>
+      <button class="chip" data-h="19">вечер</button><button class="chip" data-h="23">ночь</button></div>
+    <div class="row"><span class="lbl">Дела</span>
+      <button class="chip" data-s="normal">обычно</button><button class="chip" data-s="overload">много пропущено</button>
+      <button class="chip" data-s="clear">всё сделано</button><button class="chip" data-s="idle">давно ничего</button>
+      <button class="chip" id="reset">сначала</button></div>
+  </div>
+  <div class="river" id="river">
+    <div class="bg" id="bg"></div>
+    <div class="top">
+      <span class="streak" id="streak"></span>
+      <h1>Речка</h1>
+      <div class="sub">Рокки подскажет, куда направить день</div>
+      <div class="pill" id="pill"></div>
+    </div>
+    <div class="bottom" id="bottom"></div>
+  </div>
+<script>
+const $ = (id) => document.getElementById(id);
+
+/* ---------- данные показа (в приложении — настоящие дела и история) ---------- */
+const SAMPLE = {
+  normal:   { open: [['Позвонить маме'], ['Учить английский 15 мин', 'сегодня 18:00'], ['Прочитать 20 страниц'], ['Тренировка', 'сегодня 19:00']], overdue: 1, doneToday: 1, lastDone: 0 },
+  overload: { open: [['Отчёт за квартал', 'пропущено'], ['Записаться к врачу', 'пропущено'], ['Оплатить интернет', 'пропущено'], ['Разобрать почту', 'пропущено'], ['Позвонить маме'], ['Купить подарок', 'пропущено']], overdue: 7, doneToday: 0, lastDone: 0 },
+  clear:    { open: [], overdue: 0, doneToday: 5, lastDone: 0 },
+  idle:     { open: [['Прочитать 20 страниц'], ['Тренировка'], ['Позвонить другу']], overdue: 2, doneToday: 0, lastDone: 3 },
+};
+
+/* ---------- советы Рокки по состоянию камня ----------
+   много пропущенного — «по одному»; всё сделано — «отдыхай»; давно ничего — «начни с кусочка»; иначе — обычные */
+const ADVICE = {
+  overload: [
+    'Рокки нёс десять камушков сразу.\nДонёс ноль.\nПотом нёс по одному — донёс все.\nСегодня неси по одному.',
+    'Рокки увидел целую гору дел и сел.\nГора не уменьшилась.\nРокки снял один камень сверху — гора стала ниже.\nТак это и работает.',
+    'Рокки хотел сделать всё сегодня.\nРека напомнила: она течёт каждый день.\nРокки сделал главное и выдохнул.\nОстальное подождёт до завтра.',
+  ],
+  clear: [
+    'Сегодня камень пустой.\nРокки лёг на него погреться.\nКамень тёплый, потому что ты его разгрузил.\nОтдыхай без чувства вины.',
+    'Рокки шёл в гору и ныл.\nОглянулся — половина пути позади.\nНыть стало неинтересно.\nОглядывайся почаще.',
+    'Рокки заметил, что устал.\nСделал паузу на три вдоха.\nРека за это время не убежала.\nПауза — тоже часть пути.',
+  ],
+  idle: [
+    'Рокки ждал идеального момента.\nМимо прошли утро, день и вечер.\nИдеальный момент не пришёл.\nПришлось начать в обычный. Сработало.',
+    'Рокки боялся холодной воды.\nЗашёл одной лапкой — терпимо.\nЗашёл целиком — даже приятно.\nСамое страшное — первые десять секунд.',
+    'Рокки откладывал большое дело.\nДело выросло и стало валуном.\nРокки отколол кусочек — и валун треснул.\nНачни с кусочка.',
+  ],
+  normal: [
+    'Рокки увидел лёгкую задачу.\nЗадача блестела как мокрый камень.\nРокки ткнул палкой. Внутри был дракон.\nТеперь Рокки сначала смотрит, потом обещает.',
+    'Рокки спорил с рекой, куда ей течь.\nРека не заметила.\nРокки сел и поплыл по течению.\nОказалось — туда и надо было.',
+    'Рокки нашёл блестящую новую идею.\nСтарая идея обиделась и почти уплыла.\nРокки догнал её и доделал.\nСначала доделай — потом блести.',
+    'У Рокки не получилось с первого раза.\nИ со второго.\nНа третий раз камушек поскакал по воде.\nЭто называется тренировка, а не неудача.',
+  ],
+};
+// какое состояние у камня: решение по простым признакам, которые в приложении уже есть
+function mood(d) {
+  if (!d.open.length) return 'clear';
+  if (d.overdue >= 4) return 'overload';
+  if (d.lastDone >= 2 && !d.doneToday) return 'idle';
+  return 'normal';
+}
+const MOOD_LINE = {
+  overload: 'Камней много — выбери один, остальные подождут.',
+  clear: 'Камень пустой. Сегодня можно просто посидеть у воды.',
+  idle: 'Давно не бросали камушков. Начнём с маленького?',
+  normal: 'Выбери главное дело дня — брось его в речку.',
+};
+
+/* ---------- время суток ---------- */
+const SLOTS = [
+  { from: 5, to: 12, name: 'Утро', loc: 'Исток', img: 'river-morning', pos: '38% 50%' },
+  { from: 12, to: 17, name: 'День', loc: 'Перекат', img: 'river-day', pos: '50% 40%' },
+  { from: 17, to: 22, name: 'Вечер', loc: 'Берег', img: 'river-evening', pos: '58% 55%' },
+  { from: 22, to: 5, name: 'Ночь', loc: 'Ночлег', img: 'river-night', pos: '25% 65%' },
+];
+
+/* ---------- состояние показа ---------- */
+const st = { h: 8, s: 'normal', pick: null, today: null, done: false, streak: 4, adviceIdx: 0 };
+
+function render() {
+  const slot = SLOTS.find((x) => (x.from < x.to ? st.h >= x.from && st.h < x.to : st.h >= x.from || st.h < x.to));
+  $('bg').style.backgroundImage = `url('../img/${slot.img}.webp')`;
+  $('bg').style.backgroundPosition = slot.pos;
+  $('pill').textContent = slot.name + ' • ' + slot.loc;
+  $('streak').innerHTML = `<b>${st.streak}</b> ${st.streak === 1 ? 'день' : st.streak < 5 ? 'дня' : 'дней'} подряд донёс`;
+  const d = SAMPLE[st.s], m = mood(d), bottom = $('bottom');
+  const advice = ADVICE[m][st.adviceIdx % ADVICE[m].length];
+  const evening = st.h >= 17 || st.h < 5;
+
+  // 1. камушек дня ещё не брошен
+  if (!st.today) {
+    if (evening) {
+      bottom.innerHTML = `<div class="title">Рокки на берегу</div>
+        <div class="text">Сегодня камушек дня не бросали.\nНичего страшного — завтра утром у истока.</div>
+        <div class="text appear">${advice}</div>`;
+      return;
+    }
+    if (!d.open.length) { // бросать нечего — просто совет
+      bottom.innerHTML = `<div class="title">Рокки у воды</div><div class="text appear">${advice}</div>`;
+      return;
+    }
+    bottom.innerHTML = `<div class="title">Камушек дня</div>
+      <div class="text">${MOOD_LINE[m]}</div>
+      <div class="pebbles">${d.open.map(([t, due], i) => `<div class="peb${st.pick === i ? ' on' : ''}" data-i="${i}">
+        <img src="../img/pebble.webp" alt=""><b>${t}</b>${due ? `<small>${due}</small>` : ''}</div>`).join('')}</div>
+      <button class="btn" id="throw" ${st.pick === null ? 'disabled' : ''}><img src="../img/pebble.webp" alt="">Бросить в речку</button>`;
+    bottom.querySelectorAll('.peb').forEach((el) => el.onclick = () => { st.pick = +el.dataset.i; render(); });
+    $('throw').onclick = throwPebble;
+    return;
+  }
+
+  // 2. камушек брошен — днём: напоминание и совет; вечером: итог
+  const card = `<div class="today${st.done ? ' done' : ''}"><img src="../img/pebble.webp" alt="">
+      <div class="t"><small>Камушек дня</small><b>${st.today}</b></div>
+      <span class="st">${st.done ? '✓ донёс' : 'в пути'}</span></div>`;
+  if (!evening) {
+    bottom.innerHTML = `${card}<div class="text appear">${advice}</div>
+      <button class="btn dark" id="mark">${st.done ? 'Вернуть «в пути»' : '✓ Донёс — отметить'}</button>`;
+    $('mark').onclick = () => { st.done = !st.done; if (st.done) st.streak++; else st.streak--; render(); };
+  } else {
+    bottom.innerHTML = st.done
+      ? `<div class="title">Донёс!</div>${card}<div class="text appear">Камушек дня на месте. Это ${st.streak}-й день подряд.\nРокки гордится и идёт спать.</div>`
+      : `<div class="title">Рокки на берегу</div>${card}<div class="text appear">Камушек сегодня не доплыл — бывает.\nПеренести его на завтра или отпустить?</div>
+         <button class="btn" id="carry">Перенести на завтра</button><button class="btn dark" id="let">Отпустить</button>`;
+    if (!st.done) {
+      $('carry').onclick = () => { toast('Камушек ждёт утром у истока'); st.today = null; st.pick = null; render(); };
+      $('let').onclick = () => { toast('Отпустили. Завтра — новый камушек'); st.today = null; st.pick = null; render(); };
+    }
+  }
+}
+
+function throwPebble() {
+  const d = SAMPLE[st.s], name = d.open[st.pick][0], river = $('river');
+  $('throw').disabled = true;
+  const fly = document.createElement('img');
+  fly.src = '../img/pebble.webp'; fly.className = 'fly';
+  river.appendChild(fly);
+  setTimeout(() => { // всплеск: три круга по воде там, где упал
+    const r = river.getBoundingClientRect(), x = r.width / 2 + 8, y = r.height - 255; // куда упал камушек (конец дуги .fly)
+    [0, 180, 360].forEach((delay) => setTimeout(() => {
+      const c = document.createElement('div'); c.className = 'ripple';
+      c.style.left = x + 'px'; c.style.top = y + 'px'; river.appendChild(c);
+      setTimeout(() => c.remove(), 1500);
+    }, delay));
+    if (navigator.vibrate) navigator.vibrate(15);
+  }, 900);
+  setTimeout(() => { fly.remove(); st.today = name; st.done = false; st.adviceIdx++; render(); }, 1150);
+}
+
+function toast(text) {
+  const t = document.createElement('div');
+  t.textContent = text;
+  Object.assign(t.style, { position: 'absolute', left: '50%', top: '120px', transform: 'translateX(-50%)', zIndex: 9,
+    background: '#1d1633', border: '1px solid var(--accent)', padding: '10px 16px', borderRadius: '12px', fontSize: '13px' });
+  $('river').appendChild(t); setTimeout(() => t.remove(), 2200);
+}
+
+/* пульт */
+document.querySelectorAll('[data-h]').forEach((b) => b.onclick = () => { st.h = +b.dataset.h; mark(); render(); });
+document.querySelectorAll('[data-s]').forEach((b) => b.onclick = () => { st.s = b.dataset.s; st.pick = null; st.today = null; st.done = false; mark(); render(); });
+$('reset').onclick = () => { Object.assign(st, { h: 8, s: 'normal', pick: null, today: null, done: false, streak: 4 }); mark(); render(); };
+function mark() {
+  document.querySelectorAll('[data-h]').forEach((b) => b.classList.toggle('on', +b.dataset.h === st.h));
+  document.querySelectorAll('[data-s]').forEach((b) => b.classList.toggle('on', b.dataset.s === st.s));
+}
+mark(); render();
+</script>
+</body>
+</html>

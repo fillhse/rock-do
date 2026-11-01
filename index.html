@@ -214,6 +214,37 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
   text-shadow:0 1px 10px rgba(0,0,0,.7)}
 .rv-btn{display:flex;align-items:center;justify-content:center;gap:10px;margin:0;padding:17px;font-size:17px;border-radius:18px}
 .rv-btn img{width:24px;height:auto}
+.rv-streak{position:absolute;top:calc(18px + var(--top));right:var(--side);z-index:3;padding:8px 12px;border-radius:22px;
+  background:rgba(10,14,24,.55);backdrop-filter:blur(8px);font-size:12px}
+.rv-streak b{color:var(--orange)}
+/* камушек дня: выбор, карточка, бросок */
+.rv-pebs{display:flex;flex-direction:column;gap:7px;max-height:32vh;overflow-y:auto;margin-bottom:12px}
+.rv-peb{display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:13px;cursor:pointer;
+  background:rgba(10,14,24,.62);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(6px);transition:all .15s}
+.rv-peb img{width:22px;opacity:.55;transition:all .15s}
+.rv-peb b{font-weight:500;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rv-peb small{color:var(--orange);font-size:11px;flex:none}
+.rv-peb.on{border-color:var(--accent2);background:rgba(111,56,255,.28)}
+.rv-peb.on img{opacity:1;transform:scale(1.15) rotate(-12deg)}
+.rv-today{display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:14px;margin-bottom:14px;
+  background:rgba(10,14,24,.66);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(8px)}
+.rv-today .t{flex:1;min-width:0}
+.rv-today .t small{display:block;color:var(--muted);font-size:11px;margin-bottom:2px}
+.rv-today .t b{font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rv-today .st{font-size:12px;font-weight:600;color:var(--muted);flex:none}
+.rv-today.done{border-color:rgba(79,209,139,.5)}
+.rv-today.done .st{color:#4fd18b}
+.rv-row{display:flex;gap:10px}
+.rv-row .btn{margin-top:0}
+.rv-fly{position:absolute;width:30px;z-index:5;pointer-events:none;left:50%;bottom:calc(150px + var(--bot));
+  animation:rv-fly 1s cubic-bezier(.3,.1,.5,1) forwards}
+@keyframes rv-fly{0%{transform:translate(-50%,0) rotate(0) scale(1)}45%{transform:translate(-10%,-190px) rotate(260deg) scale(.85)}
+  100%{transform:translate(25%,-120px) rotate(420deg) scale(.35);opacity:0}}
+.rv-ripple{position:absolute;z-index:4;width:20px;height:8px;border:2px solid rgba(255,255,255,.7);border-radius:50%;
+  pointer-events:none;transform:translate(-50%,-50%) scale(0);animation:rv-ripple 1.4s ease-out forwards}
+@keyframes rv-ripple{to{transform:translate(-50%,-50%) scale(9);opacity:0}}
+.rv-appear{animation:rv-appear .5s ease both}
+@keyframes rv-appear{from{opacity:0;transform:translateY(8px)}}
 
 /* профиль */
 .p-hero{text-align:center;padding:6px 0 18px}
@@ -298,12 +329,10 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
       <div class="sub">Рокки подскажет, куда направить день</div>
       <div class="rv-chip"><span id="rv-ico"></span><span id="rv-chip-text"></span></div>
     </div>
+    <div class="rv-streak" id="rv-streak" hidden></div>
     <div class="rv-bottom">
       <div class="rv-title" id="rv-title"></div>
-      <div class="rv-text" id="rv-text"></div>
-      <button class="btn rv-btn" id="throw-btn" onclick="throwStone()">
-        <img src="img/pebble.webp" alt="" loading="lazy"><span>Бросить камушек</span>
-      </button>
+      <div id="rv-body"></div>
     </div>
   </section>
 
@@ -457,7 +486,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.7.2';
+const APP_VERSION = '1.8.0';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -671,13 +700,14 @@ function completeTask(id) {
     db.done.push({ id: newId(), title: t.title, at: Date.now(), fromRepeat: true, taskId: t.id, prevDue: t.due, rep: t.rep });
     t.due = nextOcc(t.due, t.rep, Date.now(), t.mday);
   } else {
-    db.done.push({ id: newId(), title: t.title, at: Date.now(), fromRepeat: false });
+    db.done.push({ id: newId(), title: t.title, at: Date.now(), fromRepeat: false, taskId: t.id }); // taskId — для «камушка дня»
     db.tasks = db.tasks.filter((x) => x !== t);
   }
   save();
   setTimeout(() => {
     toast(regular ? 'Сегодняшний раз засчитан! Следующая — ' + fmtDue(t.due) + '.' : 'Готово! Камень гордится тобой.', true);
     renderTasks(); renderDone();
+    if (current === 'river') renderRiver();
   }, 400);
 }
 
@@ -920,31 +950,78 @@ function saveNote() {
 }
 
 /* ===================== речка ===================== */
-const ADVICES = [
-  'Рокки увидел лёгкую задачу.\nЗадача блестела как мокрый камень.\nРокки ткнул палкой. Внутри был дракон.\nТеперь Рокки сначала смотрит, потом обещает.',
-  'Рокки нёс десять камушков сразу.\nДонёс ноль.\nПотом нёс по одному — донёс все.\nСегодня неси по одному.',
-  'Рокки спорил с рекой, куда ей течь.\nРека не заметила.\nРокки сел и поплыл по течению.\nОказалось — туда и надо было.',
-  'Рокки откладывал большое дело.\nДело выросло и стало валуном.\nРокки отколол кусочек — и валун треснул.\nНачни с кусочка.',
-  'Рокки ждал идеального момента.\nМимо прошли утро, день и вечер.\nИдеальный момент не пришёл.\nПришлось начать в обычный. Сработало.',
-  'Рокки боялся холодной воды.\nЗашёл одной лапкой — терпимо.\nЗашёл целиком — даже приятно.\nСамое страшное — первые десять секунд.',
-  'Рокки считал чужие камушки.\nСбился. Расстроился.\nПосчитал свои — ровно столько, сколько нужно.\nСмотри в свою кучку.',
-  'Рокки хотел сделать всё сегодня.\nРека напомнила: она течёт каждый день.\nРокки сделал главное и лёг смотреть на облака.\nЗавтра река никуда не денется.',
-  'Рокки нашёл блестящую новую идею.\nСтарая идея обиделась и почти уплыла.\nРокки догнал её и доделал.\nСначала доделай — потом блести.',
-  'Рокки шёл в гору и ныл.\nОглянулся — половина пути позади.\nНыть стало неинтересно.\nОглядывайся почаще.',
-  'У Рокки не получилось с первого раза.\nИ со второго.\nНа третий раз камушек поскакал по воде.\nЭто называется тренировка, а не неудача.',
-  'Рокки заметил, что устал.\nСделал паузу на три вдоха.\nРека за это время не убежала.\nПауза — тоже часть пути.',
-];
+/* Камушек дня. Утром выбираешь одно главное дело и «бросаешь» его в речку — обещание себе на сегодня.
+   Днём оно на карточке, рядом совет Рокки; выполнил (здесь, кружком на карточке, или на камне) —
+   камушек донесён. Вечером — итог: донёс (и сколько дней подряд) или перенести на завтра / отпустить.
+   Совет подбирается по состоянию камня: много пропущенного, всё сделано, давно ничего — или обычный.
+   db.river = { date, taskId, title, text, carry, released, history: [{ date, taskId }] } — один объект,
+   облако переносит его целиком. «Донёс» и серию дней не храним, а считаем по истории сделанного:
+   отменил выполнение — и «донёс» честно пропал. */
+const ADVICE = {
+  overload: [ // много пропущенного — по одному
+    'Рокки нёс десять камушков сразу.\nДонёс ноль.\nПотом нёс по одному — донёс все.\nСегодня неси по одному.',
+    'Рокки увидел целую гору дел и сел.\nГора не уменьшилась.\nРокки снял один камень сверху — гора стала ниже.\nТак это и работает.',
+    'Рокки хотел сделать всё сегодня.\nРека напомнила: она течёт каждый день.\nРокки сделал главное и выдохнул.\nОстальное подождёт до завтра.',
+  ],
+  clear: [ // всё сделано — отдых
+    'Сегодня камень пустой.\nРокки лёг на него погреться.\nКамень тёплый, потому что ты его разгрузил.\nОтдыхай без чувства вины.',
+    'Рокки шёл в гору и ныл.\nОглянулся — половина пути позади.\nНыть стало неинтересно.\nОглядывайся почаще.',
+    'Рокки заметил, что устал.\nСделал паузу на три вдоха.\nРека за это время не убежала.\nПауза — тоже часть пути.',
+  ],
+  idle: [ // давно ничего — начни с кусочка
+    'Рокки ждал идеального момента.\nМимо прошли утро, день и вечер.\nИдеальный момент не пришёл.\nПришлось начать в обычный. Сработало.',
+    'Рокки боялся холодной воды.\nЗашёл одной лапкой — терпимо.\nЗашёл целиком — даже приятно.\nСамое страшное — первые десять секунд.',
+    'Рокки откладывал большое дело.\nДело выросло и стало валуном.\nРокки отколол кусочек — и валун треснул.\nНачни с кусочка.',
+  ],
+  normal: [
+    'Рокки увидел лёгкую задачу.\nЗадача блестела как мокрый камень.\nРокки ткнул палкой. Внутри был дракон.\nТеперь Рокки сначала смотрит, потом обещает.',
+    'Рокки спорил с рекой, куда ей течь.\nРека не заметила.\nРокки сел и поплыл по течению.\nОказалось — туда и надо было.',
+    'Рокки нашёл блестящую новую идею.\nСтарая идея обиделась и почти уплыла.\nРокки догнал её и доделал.\nСначала доделай — потом блести.',
+    'У Рокки не получилось с первого раза.\nИ со второго.\nНа третий раз камушек поскакал по воде.\nЭто называется тренировка, а не неудача.',
+    'Рокки считал чужие камушки.\nСбился. Расстроился.\nПосчитал свои — ровно столько, сколько нужно.\nСмотри в свою кучку.',
+  ],
+};
+const MOOD_LINE = {
+  overload: 'Камней много — выбери один, остальные подождут.',
+  idle: 'Давно не бросали камушков. Начнём с маленького?',
+  normal: 'Выбери главное дело дня — брось его в речку.',
+};
 // pos — какая часть фона видна на узком экране: 'X% Y%'
 const RIVER_SLOTS = [
-  { from: 5,  to: 10, name: 'Утро',         loc: 'Исток',   title: 'Рокки у истока',    mood: 'Начни с самого простого шага.',     img: 'river-morning', moon: false, pos: '38% 50%' },
-  { from: 10, to: 12, name: 'Позднее утро', loc: 'Тропа',   title: 'Рокки на тропе',    mood: 'Самое время разогнаться.',          img: 'river-late',    moon: false, pos: '60% 50%' },
-  { from: 12, to: 17, name: 'День',         loc: 'Перекат', title: 'Рокки на перекате', mood: 'Сейчас лучше держать направление.', img: 'river-day',     moon: false, pos: '50% 40%' },
-  { from: 17, to: 22, name: 'Вечер',        loc: 'Берег',   title: 'Рокки на берегу',   mood: 'Заверши то, что почти готово.',     img: 'river-evening', moon: false, pos: '58% 55%' },
-  { from: 22, to: 5,  name: 'Ночь',         loc: 'Ночлег',  title: 'Рокки на ночлеге',  mood: 'Реку не торопят. Отдыхай.',         img: 'river-night',   moon: true,  pos: '25% 65%' },
+  { from: 5,  to: 10, name: 'Утро',         loc: 'Исток',   title: 'Рокки у истока',    img: 'river-morning', moon: false, pos: '38% 50%' },
+  { from: 10, to: 12, name: 'Позднее утро', loc: 'Тропа',   title: 'Рокки на тропе',    img: 'river-late',    moon: false, pos: '60% 50%' },
+  { from: 12, to: 17, name: 'День',         loc: 'Перекат', title: 'Рокки на перекате', img: 'river-day',     moon: false, pos: '50% 40%' },
+  { from: 17, to: 22, name: 'Вечер',        loc: 'Берег',   title: 'Рокки на берегу',   img: 'river-evening', moon: false, pos: '58% 55%' },
+  { from: 22, to: 5,  name: 'Ночь',         loc: 'Ночлег',  title: 'Рокки на ночлеге',  img: 'river-night',   moon: true,  pos: '25% 65%' },
 ];
 const SUN_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M18 6l-1.4 1.4M7.4 16.6 6 18"/></svg>';
 const MOON_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M20 13A8 8 0 1 1 11 4a6.5 6.5 0 0 0 9 9Z"/></svg>';
-const localDay = () => new Date().toLocaleDateString('sv'); // ГГГГ-ММ-ДД по местному времени
+const localDay = (ms = Date.now()) => new Date(ms).toLocaleDateString('sv'); // ГГГГ-ММ-ДД по местному времени
+const isEvening = () => { const h = new Date().getHours(); return h >= 17 || h < 5; };
+// дела, которые можно бросить сегодня: всё на камне, кроме назначенных на другой день
+// и регулярных, уже отмеченных сегодня
+const riverOpen = () => byPos(db.tasks).filter((t) => !isWaiting(t) && !(isRepeating(t) && doneToday(t)));
+function riverMood() {
+  const open = riverOpen(), now = Date.now();
+  if (!open.length) return 'clear';
+  if (open.filter((t) => t.due && t.due < now).length >= 4) return 'overload';
+  const last = db.done.reduce((m, d) => Math.max(m, d.at), 0);
+  if (now - last > 2 * DAY) return 'idle';
+  return 'normal';
+}
+const adviceFor = (mood, notThis) => { const pool = ADVICE[mood].filter((t) => t !== notThis); return pool[Math.floor(Math.random() * pool.length)]; };
+const delivered = (date, taskId) => taskId != null && db.done.some((d) => d.taskId === taskId && localDay(d.at) === date);
+// серия: сколько дней подряд камушек дня донесён (сегодня ещё не донёс — считаем со вчера)
+function riverStreak() {
+  const byDate = new Map(((db.river && db.river.history) || []).map((h) => [h.date, h.taskId]));
+  const d = new Date();
+  if (!delivered(localDay(), byDate.get(localDay()))) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (delivered(localDay(d.getTime()), byDate.get(localDay(d.getTime())))) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+const daysWord = (n) => plural(n, ['день', 'дня', 'дней']);
+let riverPick = null;
 function renderRiver() {
   const h = new Date().getHours();
   const slot = RIVER_SLOTS.find((s) => (s.from < s.to ? h >= s.from && h < s.to : h >= s.from || h < s.to));
@@ -952,23 +1029,79 @@ function renderRiver() {
   $('rv-bg').style.backgroundPosition = slot.pos;
   $('rv-ico').innerHTML = slot.moon ? MOON_ICO : SUN_ICO;
   $('rv-chip-text').textContent = slot.name + ' • ' + slot.loc;
-  $('rv-title').textContent = slot.title;
-  const thrown = db.river && db.river.date === localDay();
-  $('rv-text').textContent = thrown ? db.river.text : slot.mood; // до броска — настроение, после — история дня
-  $('throw-btn').disabled = thrown;
-  $('throw-btn').querySelector('span').textContent = thrown ? 'Завтра новый бросок' : 'Бросить камушек';
+  const streak = riverStreak();
+  $('rv-streak').hidden = !streak;
+  $('rv-streak').innerHTML = `<b>${streak}</b> ${daysWord(streak)} подряд донёс`;
+  const r = db.river || {}, today = localDay(), body = $('rv-body'), mood = riverMood();
+  const text = (t) => `<div class="rv-text rv-appear"></div>`.replace('></div>', '>' + esc(t) + '</div>');
+  if (r.date !== today || r.taskId == null) { // камушек дня ещё не брошен (или брошен старой версией — без дела)
+    const open = riverOpen();
+    if (isEvening() || !open.length) {
+      $('rv-title').textContent = slot.title;
+      body.innerHTML = text((open.length ? 'Сегодня камушек дня не бросали — утром у истока будет новый.\n\n' : '') + adviceFor(mood));
+      return;
+    }
+    if (riverPick === null && open.some((t) => t.id === r.carry)) riverPick = r.carry; // перенесённый со вчера
+    $('rv-title').textContent = 'Камушек дня';
+    body.innerHTML = text(MOOD_LINE[mood]) + `<div class="rv-pebs">${open.map((t) => `
+      <div class="rv-peb${t.id === riverPick ? ' on' : ''}" onclick="riverPick=${t.id};renderRiver()">
+        <img src="img/pebble.webp" alt=""><b>${esc(t.title)}</b>${t.due ? `<small>${fmtDue(t.due)}</small>` : ''}</div>`).join('')}</div>
+      <button class="btn rv-btn" id="throw-btn" onclick="throwPebble()" ${riverPick === null ? 'disabled' : ''}>
+        <img src="img/pebble.webp" alt=""><span>Бросить в речку</span></button>`;
+    return;
+  }
+  // брошен: карточка с кружком, как на камне, — отметить можно прямо здесь
+  const done = delivered(today, r.taskId), alive = db.tasks.some((t) => t.id === r.taskId);
+  const card = `<div class="rv-today${done ? ' done' : ''}">
+      <div class="hit" onclick="riverComplete()"><div class="checkbox${done ? ' on' : ''}">${done ? '✓' : ''}</div></div>
+      <div class="t"><small>Камушек дня</small><b>${esc(r.title)}</b></div>
+      <span class="st">${done ? 'донёс' : alive ? 'в пути' : 'убран с камня'}</span></div>`;
+  if (!isEvening()) { $('rv-title').textContent = slot.title; body.innerHTML = card + text(r.text); return; }
+  if (done) {
+    $('rv-title').textContent = 'Донёс!';
+    body.innerHTML = card + text('Камушек дня на месте.' + (streak > 1 ? ` Это ${streak}-й день подряд.` : '') + '\nРокки гордится и идёт спать.');
+  } else if (r.carry === r.taskId || r.released || !alive) {
+    $('rv-title').textContent = slot.title;
+    body.innerHTML = card + text(r.carry === r.taskId ? 'Камушек ждёт утром у истока.' : 'Отпустили. Завтра — новый камушек.');
+  } else {
+    $('rv-title').textContent = slot.title;
+    body.innerHTML = card + text('Камушек сегодня не доплыл — бывает.\nПеренести его на завтра или отпустить?') +
+      `<div class="rv-row"><button class="btn" onclick="riverSet({ carry: db.river.taskId })">На завтра</button>
+       <button class="btn dark" onclick="riverSet({ released: true })">Отпустить</button></div>`;
+  }
 }
-function throwStone() {
-  const btn = $('throw-btn');
-  if (btn.disabled) return;
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function riverSet(fields) { db.river = { ...db.river, ...fields }; save(); renderRiver(); }
+function riverComplete() {
+  const r = db.river;
+  if (!r || delivered(localDay(), r.taskId) || !db.tasks.some((t) => t.id === r.taskId)) return;
+  completeTask(r.taskId); // так же, как кружком на камне; Речка перерисуется после анимации
+}
+function throwPebble() {
+  const t = db.tasks.find((x) => x.id === riverPick), btn = $('throw-btn');
+  if (!t || btn.disabled) return;
   btn.disabled = true;
-  btn.querySelector('span').textContent = 'Камушек летит...';
-  setTimeout(() => {
-    let i = Math.floor(Math.random() * ADVICES.length);
-    if (db.river && ADVICES[i] === db.river.text) i = (i + 1) % ADVICES.length; // не повторять вчерашний
-    db.river = { date: localDay(), text: ADVICES[i] };
-    save(); renderRiver();
+  const river = $('s-river'), fly = document.createElement('img');
+  fly.src = 'img/pebble.webp'; fly.className = 'rv-fly';
+  river.appendChild(fly);
+  setTimeout(() => { // всплеск — круги по воде там, где камушек упал (конец дуги .rv-fly)
+    const r = river.getBoundingClientRect(), f = fly.getBoundingClientRect();
+    const x = f.left + f.width / 2 - r.left, y = f.top + f.height / 2 - r.top + 12;
+    [0, 180, 360].forEach((delay) => setTimeout(() => {
+      const c = document.createElement('div');
+      c.className = 'rv-ripple'; c.style.left = x + 'px'; c.style.top = y + 'px';
+      river.appendChild(c); setTimeout(() => c.remove(), 1500);
+    }, delay));
+    haptic('success');
   }, 900);
+  setTimeout(() => {
+    fly.remove();
+    const prev = db.river || {}, today = localDay();
+    db.river = { date: today, taskId: t.id, title: t.title, text: adviceFor(riverMood(), prev.text), carry: null, released: false,
+      history: [...(prev.history || []).filter((h) => h.date !== today), { date: today, taskId: t.id }].slice(-60) };
+    riverPick = null;
+    save(); renderRiver();
+  }, 1150);
 }
 
 /* ===================== профиль ===================== */
