@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<title>Rocky — два устройства</title>
+<style>
+  body{margin:0;background:#111;color:#ddd;font:13px -apple-system,sans-serif;display:flex;gap:12px;padding:12px}
+  iframe{width:375px;height:720px;border:1px solid #333;border-radius:12px;background:#000}
+  .col b{display:block;margin-bottom:6px}
+  pre{white-space:pre-wrap;flex:1;margin:0}
+</style>
+</head>
+<body>
+<div class="col"><b>Телефон (8781)</b><iframe id="a" src="http://127.0.0.1:8781/"></iframe></div>
+<div class="col"><b>Mac (8782)</b><iframe id="b" src="http://127.0.0.1:8782/"></iframe></div>
+<pre id="out">Запуск…</pre>
+<script>
+/* Тест живой сверки на двух независимых копиях Rocky (запуск — см. tests/two_devices.py).
+   Обе копии открыты одновременно и видны на экране — как телефон и Mac с открытым Rocky. */
+const out = document.getElementById('out');
+const log = (s) => { out.textContent += '\n' + s; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let seq = 0;
+const ask = (frame, code) => new Promise((resolve) => {
+  const id = ++seq;
+  const on = (e) => { if (e.data && e.data.id === id) { removeEventListener('message', on); resolve(e.data.res); } };
+  addEventListener('message', on);
+  document.getElementById(frame).contentWindow.postMessage({ id, run: code }, '*');
+  setTimeout(() => { removeEventListener('message', on); resolve('НЕТ ОТВЕТА'); }, 8000);
+});
+const loaded = (frame) => new Promise((r) => { document.getElementById(frame).onload = () => r(); });
+const reload = async (frame) => { const p = loaded(frame); await ask(frame, 'location.reload()'); await p; await sleep(800); };
+// ждём, пока на устройстве не станет верно условие; возвращает время в мс или null
+async function waitFor(frame, cond, limit = 5000) {
+  const t0 = performance.now();
+  while (performance.now() - t0 < limit) { if (await ask(frame, cond) === true) return Math.round(performance.now() - t0); await sleep(50); }
+  return null;
+}
+const results = [];
+const check = (name, ok) => { results.push(ok); log((ok ? 'OK      ' : 'ОШИБКА  ') + name); };
+const inDone = (title) => `[...document.querySelectorAll('#done-list b')].some((b) => b.textContent === ${JSON.stringify(title)})`;
+const inTasks = (title) => `[...document.querySelectorAll('#task-list b')].some((b) => b.textContent === ${JSON.stringify(title)})`;
+const taskId = (title) => `db.tasks.find((t) => t.title === ${JSON.stringify(title)}).id`;
+
+(async () => {
+  await Promise.all([loaded('a'), loaded('b')]);
+  // чистый старт: пустое облако, у обоих устройств стартовые примеры
+  await fetch('/cloud/reset', { method: 'POST', body: '{}' });
+  for (const f of ['a', 'b']) { await ask(f, "localStorage.clear(); sessionStorage.clear(); 'ok'"); await reload(f); }
+  out.textContent = 'Версии: телефон ' + await ask('a', 'APP_VERSION') + ', Mac ' + await ask('b', 'APP_VERSION') +
+    '; облако включено: ' + await ask('a', '!!cloud') + ' / ' + await ask('b', '!!cloud');
+
+  // 1. действие на телефоне → появляется на Mac само
+  await ask('a', `completeTask(${await ask('a', taskId('Позвонить маме'))}); 'ok'`);
+  let ms = await waitFor('b', inDone('Позвонить маме'));
+  check(`телефон → Mac: выполненное дело появилось на Mac само${ms !== null ? ' за ' + ms + ' мс' : ''}`, ms !== null && ms < 2500);
+
+  // 2. действие на Mac → появляется на телефоне само
+  await ask('b', `completeTask(${await ask('b', taskId('Прочитать 20 страниц'))}); 'ok'`);
+  ms = await waitFor('a', inDone('Прочитать 20 страниц'));
+  check(`Mac → телефон: выполненное дело появилось на телефоне само${ms !== null ? ' за ' + ms + ' мс' : ''}`, ms !== null && ms < 2500);
+
+  // 3. почти одновременно на обоих — разные дела; оба устройства сходятся к одному и тому же
+  await Promise.all([
+    ask('a', `db.tasks.push({ id: newId(), title: 'С телефона', due: null, rep: 'never', pos: -90 }); save(); renderAll(); 'ok'`),
+    ask('b', `db.tasks.push({ id: newId(), title: 'С Mac', due: null, rep: 'never', pos: -91 }); save(); renderAll(); 'ok'`),
+  ]);
+  const both = `${inTasks('С телефона')} && ${inTasks('С Mac')}`;
+  const [ma, mb] = await Promise.all([waitFor('a', both), waitFor('b', both)]);
+  check(`одновременные правки: оба дела на обоих устройствах (телефон ${ma} мс, Mac ${mb} мс)`, ma !== null && mb !== null);
+
+  // 4. удаление на Mac пропадает и на телефоне
+  await ask('b', `removeWithUndo('tasks', ${await ask('b', taskId('С телефона'))}, 'Задача удалена'); 'ok'`);
+  ms = await waitFor('a', `!(${inTasks('С телефона')})`);
+  check(`удаление на Mac пропало с телефона${ms !== null ? ' за ' + ms + ' мс' : ''}`, ms !== null);
+
+  // 5. итог: одинаковые данные на обоих устройствах
+  await sleep(1500);
+  const snapshot = "JSON.stringify(['tasks','notes','done'].map((k) => db[k].map((x) => x.id + ':' + (x.title || '')).sort()))";
+  check('итог: данные на телефоне и на Mac совпадают', await ask('a', snapshot) === await ask('b', snapshot));
+
+  log(results.every(Boolean) ? `\n✅ все ${results.length} сценариев прошли` : `\n❌ ошибок: ${results.filter((x) => !x).length}`);
+  document.title = results.every(Boolean) ? 'OK' : 'FAIL';
+})();
+</script>
+</body>
+</html>

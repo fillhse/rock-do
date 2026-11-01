@@ -29,6 +29,12 @@ self.addEventListener('fetch', (e) => {
   // страница приложения — сразу из кэша; свежая копия тихо скачивается и откроется в следующий раз
   if (e.request.mode === 'navigate') {
     if (url.pathname !== APP_PAGE && url.pathname !== APP_PAGE + 'index.html') return; // чужие страницы не трогаем
+    if (url.searchParams.has('v')) { // самообновление (?v=…): сначала сеть, чтобы открылась именно новая версия
+      e.respondWith(fetch(url.href, { cache: 'no-cache' })
+        .then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put('./', copy)); } return res; })
+        .catch(() => caches.match('./')));
+      return;
+    }
     e.respondWith(caches.open(CACHE).then(async (c) => {
       // по адресу, а не по самому запросу: запрос страницы (mode: navigate) нельзя пересобрать с настройками —
       // fetch молча падает, и кэш страницы никогда бы не обновлялся

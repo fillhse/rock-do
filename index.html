@@ -446,7 +446,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.4.2';
+const APP_VERSION = '1.4.3';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -1134,7 +1134,7 @@ const cs = (method, ...args) => new Promise((resolve, reject) => {
 });
 function cloudPack(d) {
   const parts = { t: d.tasks, n: d.notes, d: d.done, m: { deleted: d.deleted, river: d.river, nextId: d.nextId } };
-  const keys = {}, idx = { v: 1 };
+  const keys = {}, idx = { v: 1, app: APP_VERSION };
   for (const [p, val] of Object.entries(parts)) {
     const s = JSON.stringify(val);
     idx[p] = Math.max(1, Math.ceil(s.length / CHUNK));
@@ -1156,6 +1156,7 @@ async function cloudRead() {
   const keys = await cs('getItems', all);
   Object.assign(cloudKeys, keys);
   lastRev = keys.rev || null;
+  try { updateTo(JSON.parse(keys.idx).app); } catch (e) { /* опись разберёт cloudUnpack ниже */ }
   return cloudUnpack(keys);
 }
 async function cloudWrite(keys) {
@@ -1167,7 +1168,7 @@ async function cloudWrite(keys) {
   const stale = Object.keys(cloudKeys).filter((k) => !(k in keys) && k !== 'rev');
   if (stale.length) { await cs('removeItems', stale); stale.forEach((k) => delete cloudKeys[k]); }
   if (changed.length || idxChanged || stale.length) { // метка — последней: другие устройства увидят уже целые данные
-    const rev = Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+    const rev = Date.now() + '-' + Math.random().toString(36).slice(2, 7) + '-' + APP_VERSION;
     await cs('setItem', 'rev', rev);
     cloudKeys.rev = lastRev = rev;
   }
@@ -1231,12 +1232,27 @@ function cloudSync() {
   })();
   return syncing;
 }
+/* Самообновление. Устройство, увидевшее в облаке запись от более новой версии Rocky, перезагружается в неё:
+   иначе устройства с разными версиями понимают друг друга не полностью (так и было: Mac на старой версии
+   не проверял изменения). Telegram на Mac держит страницу в обычном кэше до 10 минут, поэтому
+   заходим по новому адресу ?v=…; одна попытка на версию — без бесконечных перезагрузок. */
+const newer = (a, b) => {
+  const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+};
+function updateTo(v) {
+  if (!v || !newer(v, APP_VERSION) || drag || document.querySelector('.overlay.on, .sheet-back.on')) return; // не посреди правки
+  try { if (sessionStorage.getItem('rocky-update') === v) return; sessionStorage.setItem('rocky-update', v); } catch (e) { return; }
+  location.replace(location.pathname + '?v=' + encodeURIComponent(v) + location.hash);
+}
 async function cloudPoll() {
   pollTimer = null;
   if (!cloud || document.visibilityState !== 'visible') return;
   try {
     if (!syncing && !drag) {
       const rev = await cs('getItem', 'rev');
+      if (rev) updateTo(rev.split('-')[2]);
       if (rev && rev !== lastRev) await cloudSync(); // кто-то другой записал — подтягиваем
     }
     pollDelay = POLL_MS;
