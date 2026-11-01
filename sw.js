@@ -1,13 +1,13 @@
 /* rock do — service worker: офлайн-работа и быстрые обновления.
    При изменении файлов приложения увеличивай VERSION — старый кэш удалится. */
-const VERSION = 'v7'; // то же значение — в BUILD в index.html
+const VERSION = 'v8'; // то же значение — в BUILD в index.html
 const CACHE = 'rockdo-' + VERSION;
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
-  'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png',
-  'rock-happy.png', 'rock-neutral.png', 'rock-notes.png', 'rock-sad.png', 'rock-sleep.png',
-  'mountain.png', 'pebble.png',
-  'river-morning.jpg', 'river-late.jpg', 'river-day.jpg', 'river-evening.jpg', 'river-night.jpg',
+  'icons/icon-192.png', // большие иконки нужны только при установке — браузер возьмёт их сам
+  'img/rock-happy.webp', 'img/rock-neutral.webp', 'img/rock-notes.webp', 'img/rock-sad.webp', 'img/rock-sleep.webp',
+  'img/mountain.webp', 'img/pebble.webp',
+  'img/river-morning.webp', 'img/river-late.webp', 'img/river-day.webp', 'img/river-evening.webp', 'img/river-night.webp',
 ];
 
 self.addEventListener('install', (e) => {

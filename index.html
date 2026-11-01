@@ -22,6 +22,17 @@ const IN_TG = (() => {
   } catch (e) { return false; }
 })();
 const tgTry = (fn) => { try { fn(); } catch (e) {} }; // одна упавшая команда не ломает остальные
+/* событие в Telegram напрямую по его протоколу (core.telegram.org/api/web-events) — без ожидания SDK.
+   Нужно только для «готово» сразу после первой отрисовки: Telegram держит свой экран загрузки,
+   пока не получит web_app_ready или пока не загрузится вся страница. */
+function tgPost(type, data = {}) {
+  if (!IN_TG) return;
+  tgTry(() => {
+    if (window.TelegramWebviewProxy) TelegramWebviewProxy.postEvent(type, JSON.stringify(data));
+    else if (window.external && 'notify' in window.external) external.notify(JSON.stringify({ eventType: type, eventData: data }));
+    else if (window.parent !== window) parent.postMessage(JSON.stringify({ eventType: type, eventData: data }), 'https://web.telegram.org');
+  });
+}
 if (IN_TG) {
   document.documentElement.classList.add('tg');
   const s = document.createElement('script');
@@ -46,6 +57,8 @@ if (IN_TG) {
     });
     tgTry(() => tg.ready());
     tgTry(() => tg.expand());
+    // на телефоне — всегда на весь экран, как бы ни открыли: из списка чатов или кнопкой в боте
+    tgTry(() => tg.isVersionAtLeast('8.0') && /android|ios/.test(tg.platform) && !tg.isFullscreen && tg.requestFullscreen());
     // иначе свайп вниз при перетаскивании карточек и прокрутке колёс закрывает приложение
     tgTry(() => tg.isVersionAtLeast('7.7') && tg.disableVerticalSwipes());
     tgTry(() => tg.isVersionAtLeast('6.1') && tg.setHeaderColor('#030912'));
@@ -340,7 +353,7 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
   <!-- ЭКРАН 1: Камень -->
   <div class="screen on" id="s-rock">
     <div class="hero">
-      <img src="rock-neutral.png" alt="rock">
+      <img src="img/rock-neutral.webp" alt="rock" width="360" height="322" fetchpriority="high">
       <div>
         <div class="phrase">Маленький шаг сегодня — большая гора завтра.</div>
         <div class="hint">Новые советы + Напоминания в Telegram</div>
@@ -370,7 +383,7 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
       <div class="rv-title" id="rv-title"></div>
       <div class="rv-text" id="rv-text"></div>
       <button class="btn rv-btn" id="throw-btn" onclick="throwStone()">
-        <img src="pebble.png" alt=""><span>Бросить камушек</span>
+        <img src="img/pebble.webp" alt="" loading="lazy"><span>Бросить камушек</span>
       </button>
     </div>
   </div>
@@ -379,7 +392,7 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
   <div class="screen" id="s-profile">
     <h1>Профиль</h1>
     <div class="p-hero">
-      <img src="rock-happy.png" alt="Рокки">
+      <img src="img/rock-happy.webp" alt="Рокки" loading="lazy">
       <div class="p-name">Рокки</div>
       <div class="p-sub">Твой помощник, который помогает держать фокус на важном</div>
     </div>
@@ -405,7 +418,7 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
         <div class="mstat"><span>Неделя</span><b id="st-week">0</b></div>
         <div class="mstat"><span>Всего</span><b id="st-total">0</b></div>
       </div>
-      <img class="mnt-img" src="mountain.png" alt="">
+      <img class="mnt-img" src="img/mountain.webp" alt="" loading="lazy">
     </div>
     <div class="card tg-card">
       <span class="tg-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.6 4.4 2.9 11.6c-.8.3-.8 1.4 0 1.7l4.6 1.5 1.8 5.5c.2.7 1.1.9 1.6.3l2.5-2.9 4.7 3.4c.6.4 1.4.1 1.6-.6l3-14.9c.2-.8-.6-1.5-1.4-1.2ZM8.5 14.5l9-6.8c.3-.2.6.2.3.4l-7.3 7-.3 3-1.7-3.6Z"/></svg></span>
@@ -432,7 +445,7 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
     <div class="row" onclick="openPicker()"><span>Когда сделать?</span><span class="val"><span id="t-due-label">Без срока</span> <span class="chev">›</span></span></div>
     <button class="btn" id="saveBtn" disabled onclick="saveTask()">Положить</button>
     <button class="btn dark" onclick="closeOverlay('o-task')">Отмена</button>
-    <div class="rockhint"><img src="rock-neutral.png" alt=""><span>Камень рядом и напомнит<br>в нужный момент</span></div>
+    <div class="rockhint"><img src="img/rock-neutral.webp" alt="" loading="lazy"><span>Камень рядом и напомнит<br>в нужный момент</span></div>
     <button class="btn dark" id="delBtn" style="display:none" onclick="deleteTask()">Удалить дело</button>
   </div>
 
@@ -522,7 +535,7 @@ textarea.input.nt-title{min-height:calc(1.45em + 34px);height:auto;font-size:15p
       Профиль</button>
   </nav>
 
-  <div class="toast" id="toastEl"><img src="rock-happy.png" id="toast-img" style="display:none"><span id="toast-text"></span></div>
+  <div class="toast" id="toastEl"><img src="img/rock-happy.webp" id="toast-img" style="display:none" alt="" loading="lazy"><span id="toast-text"></span></div>
 </div>
 
 <script>
@@ -668,7 +681,7 @@ let toastTimer;
 /* happy: true — тост со счастливым Рокки, 'sad' — с грустным, пусто — без картинки */
 function toast(text, happy) {
   const img = document.getElementById('toast-img');
-  img.src = happy === 'sad' ? 'rock-sad.png' : 'rock-happy.png';
+  img.src = happy === 'sad' ? 'img/rock-sad.webp' : 'img/rock-happy.webp';
   clearTimeout(toastTimer);
   document.getElementById('toast-text').textContent = text;
   document.getElementById('toast-img').style.display = happy ? 'block' : 'none';
@@ -699,7 +712,7 @@ function renderTasks() {
     .filter((t) => !(t.rep && t.rep !== 'never' && t.due && !dueTodayOrPast(t.due)));
   document.getElementById('task-count').textContent = ts.length;
   if (!ts.length) {
-    list.innerHTML = `<div class="empty"><img src="rock-sleep.png"><div>Пока камень свободен.<br>Положи на него первое дело.</div></div>`;
+    list.innerHTML = `<div class="empty"><img src="img/rock-sleep.webp"><div>Пока камень свободен.<br>Положи на него первое дело.</div></div>`;
     renderDone();
     return;
   }
@@ -972,7 +985,7 @@ function renderNotes() {
   const list = document.getElementById('note-list');
   const ns = [...db.notes].sort((a, b) => a.pos - b.pos); // ручной порядок, новые сверху
   if (!ns.length) {
-    list.innerHTML = '<div class="empty"><img src="rock-notes.png" alt=""><div>Запиши первую мысль — нажми «+».</div></div>';
+    list.innerHTML = '<div class="empty"><img src="img/rock-notes.webp" alt=""><div>Запиши первую мысль — нажми «+».</div></div>';
     return;
   }
   list.innerHTML = '<div class="ncol"></div><div class="ncol"></div>';
@@ -1064,7 +1077,7 @@ function saveNote() {
 function localDay() { return new Date().toLocaleDateString('sv'); }
 function renderRiver() {
   const slot = riverSlot();
-  document.getElementById('rv-bg').style.backgroundImage = `url('${slot.img}.jpg')`;
+  document.getElementById('rv-bg').style.backgroundImage = `url('img/${slot.img}.webp')`;
   document.getElementById('rv-bg').style.backgroundPosition = slot.pos || 'center';
   document.getElementById('rv-ico').innerHTML = slot.icon === 'moon' ? MOON_ICO : SUN_ICO;
   document.getElementById('rv-chip-text').textContent = slot.name + ' • ' + slot.loc;
@@ -1100,7 +1113,7 @@ function renderStats() {
   document.getElementById('st-total').textContent = db.done.length;
 }
 // «О приложении»: версия сборки (= VERSION в sw.js) и диагностика Telegram
-const BUILD = 'v7';
+const BUILD = 'v8';
 function aboutToast() {
   const tg = window.Telegram && Telegram.WebApp;
   let s = 'rock do · версия 1.1.0 (' + BUILD + ')';
@@ -1348,10 +1361,13 @@ function endDrag(cancelled) {
 
 /* старт */
 renderTasks(); renderNotes(); renderRiver(); renderStats();
+tgPost('web_app_ready'); // экран уже нарисован — Telegram может убрать свою заглушку
+tgPost('web_app_expand');
 
 /* PWA: офлайн-режим и установка на телефон */
+// после загрузки страницы: кэширование для офлайна не должно отнимать сеть у первого показа
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
 // просим браузер не вычищать данные при нехватке места
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
