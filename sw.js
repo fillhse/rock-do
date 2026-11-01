@@ -1,6 +1,6 @@
 /* rock do — service worker: офлайн-работа и быстрые обновления.
    При изменении файлов приложения увеличивай VERSION — старый кэш удалится. */
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = 'rockdo-' + VERSION;
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',

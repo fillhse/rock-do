@@ -25,6 +25,15 @@ if (IN_TG) {
       if (tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes();
       if (tg.isVersionAtLeast('6.1')) { tg.setHeaderColor('#030912'); tg.setBackgroundColor('#030912'); }
       if (tg.isVersionAtLeast('7.10')) tg.setBottomBarColor('#050b14');
+      // Fullscreen: не залезать под статус-бар, кнопки ✕/⋯ Telegram и жестовую полоску
+      const insets = () => {
+        const a = tg.safeAreaInset || {}, c = tg.contentSafeAreaInset || {};
+        const st = document.documentElement.style;
+        st.setProperty('--top', ((a.top || 0) + (c.top || 0)) + 'px');
+        st.setProperty('--bot', ((a.bottom || 0) + (c.bottom || 0)) + 'px');
+      };
+      insets();
+      ['safeAreaChanged', 'contentSafeAreaChanged', 'fullscreenChanged'].forEach((ev) => tg.onEvent(ev, insets));
     } catch (e) {}
   };
   document.head.appendChild(s);
@@ -45,6 +54,8 @@ function haptic(kind) {
   --card:rgba(255,255,255,.05); --card2:rgba(255,255,255,.08);
   --accent:#4e20c8; --accent2:#6f38ff; --orange:#ffa42e;
   --text:#eef0f6; --muted:#8b93a7; --radius:14px;
+  /* отступы от краёв экрана: вырез/статус-бар и кнопки Telegram в Fullscreen, жестовая полоска снизу */
+  --top:env(safe-area-inset-top,0px); --bot:env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
@@ -59,7 +70,7 @@ body{background:#0b0e16;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
 html.tg .phone{width:100%;height:100%;max-height:none;border-radius:0;box-shadow:none}
 html.tg .demo-note{display:none}
 
-.screen{position:absolute;inset:0;overflow-y:auto;padding:18px 16px 116px;display:none}
+.screen{position:absolute;inset:0;overflow-y:auto;padding:calc(18px + var(--top)) 16px calc(116px + var(--bot));display:none}
 .screen.on{display:block}
 h1{font-size:21px;margin-bottom:4px}
 .sub{color:var(--muted);font-size:12px;margin-bottom:16px}
@@ -71,7 +82,7 @@ h1{font-size:21px;margin-bottom:4px}
 .drag-src{opacity:.25}
 
 /* корзина при переносе (по центру, на месте плюса) */
-.trash{position:absolute;left:0;right:0;bottom:26px;z-index:60;
+.trash{position:absolute;left:0;right:0;bottom:calc(26px + var(--bot));z-index:60;
   display:flex;flex-direction:column;align-items:center;gap:12px;
   opacity:0;pointer-events:none;transform:translateY(46px);transition:all .22s ease}
 .trash.show{opacity:1;transform:none}
@@ -85,7 +96,7 @@ h1{font-size:21px;margin-bottom:4px}
 .trash-btn svg{width:26px;height:26px}
 
 /* плашка отмены удаления */
-.snack{position:absolute;left:14px;right:14px;bottom:92px;z-index:55;
+.snack{position:absolute;left:14px;right:14px;bottom:calc(92px + var(--bot));z-index:55;
   background:#131a2c;border:1px solid rgba(255,255,255,.08);border-radius:14px;
   padding:14px 16px;display:flex;align-items:center;justify-content:space-between;
   opacity:0;pointer-events:none;transform:translateY(16px);transition:all .2s ease}
@@ -133,10 +144,10 @@ h1{font-size:21px;margin-bottom:4px}
 .btn.small{width:auto;padding:8px 16px;font-size:13px;display:inline-block}
 
 /* нижняя навигация */
-.nav{position:absolute;left:0;right:0;bottom:0;height:76px;z-index:10;
+.nav{position:absolute;left:0;right:0;bottom:0;height:calc(76px + var(--bot));z-index:10;
   background:rgba(5,11,20,.96);backdrop-filter:blur(14px);
   border-top:1px solid rgba(255,255,255,.05);
-  display:flex;align-items:center;justify-content:space-around;padding:0 6px}
+  display:flex;align-items:center;justify-content:space-around;padding:0 6px var(--bot)}
 .nav button{background:none;border:none;color:#6b7280;font-size:10px;letter-spacing:.02em;cursor:pointer;
   flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-height:48px;justify-content:center;
   transition:color .15s}
@@ -152,7 +163,7 @@ h1{font-size:21px;margin-bottom:4px}
 
 /* оверлеи */
 .overlay{position:absolute;inset:0;z-index:20;background:linear-gradient(180deg,var(--bg1),var(--bg2));
-  padding:20px 16px;overflow-y:auto;display:none;animation:up .22s ease}
+  padding:calc(20px + var(--top)) 16px calc(20px + var(--bot));overflow-y:auto;display:none;animation:up .22s ease}
 .overlay.on{display:block}
 @keyframes up{from{transform:translateY(30px);opacity:0}}
 .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
@@ -224,11 +235,6 @@ textarea.input.nt-title{min-height:0;height:auto;font-size:15px;line-height:1.45
 .ne-body{background:none;border:none;outline:none;color:var(--text);resize:none;
   font-size:15px;line-height:1.55;flex:1;font-family:inherit;width:100%}
 .ne-body::placeholder{color:#3a4254}
-.quickbar{position:absolute;left:0;right:0;bottom:64px;padding:10px 16px;display:flex;gap:8px;
-  background:rgba(3,9,18,.92);backdrop-filter:blur(10px);z-index:9}
-.quickbar input{flex:1;margin-bottom:0}
-.quickbar button{width:48px;border:none;border-radius:12px;background:var(--accent2);color:#fff;font-size:22px;cursor:pointer}
-.quickbar button:disabled{opacity:.4}
 
 
 /* речка: фон-локация на весь экран, контент поверх */
@@ -237,12 +243,12 @@ textarea.input.nt-title{min-height:0;height:auto;font-size:15px;line-height:1.45
 .rv-bg:after{content:'';position:absolute;inset:0;
   background:linear-gradient(180deg,rgba(3,9,18,.84) 0%,rgba(3,9,18,.3) 18%,rgba(3,9,18,0) 34%,
              rgba(3,9,18,.5) 55%,rgba(3,9,18,.88) 72%,rgba(3,9,18,.97) 100%)}
-.rv-top{position:absolute;top:0;left:0;right:0;padding:18px 16px 0;z-index:2}
+.rv-top{position:absolute;top:0;left:0;right:0;padding:calc(18px + var(--top)) 16px 0;z-index:2}
 .rv-chip{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:9px 15px;border-radius:22px;
   background:rgba(10,14,24,.55);backdrop-filter:blur(8px);
   color:#ffd479;font-size:13px;font-weight:600}
 .rv-chip svg{width:16px;height:16px;display:block}
-.rv-bottom{position:absolute;left:0;right:0;bottom:96px;padding:0 16px;z-index:2}
+.rv-bottom{position:absolute;left:0;right:0;bottom:calc(96px + var(--bot));padding:0 16px;z-index:2}
 .rv-title{font-size:27px;font-weight:700;margin-bottom:8px;text-shadow:0 2px 14px rgba(0,0,0,.65)}
 .rv-text{font-size:15px;line-height:1.55;color:#e8ebf4;white-space:pre-line;margin-bottom:18px;
   text-shadow:0 1px 10px rgba(0,0,0,.7)}
@@ -281,7 +287,7 @@ textarea.input.nt-title{min-height:0;height:auto;font-size:15px;line-height:1.45
 .tg-card .btn.small{margin-top:0}
 
 /* toast */
-.toast{position:absolute;left:50%;bottom:102px;transform:translateX(-50%);z-index:50;
+.toast{position:absolute;left:50%;bottom:calc(102px + var(--bot));transform:translateX(-50%);z-index:50;
   background:#1d1633;border:1px solid var(--accent);padding:10px 18px;border-radius:12px;
   font-size:13px;display:none;align-items:center;gap:10px;animation:up .2s ease;
   width:max-content;max-width:calc(100% - 32px);line-height:1.4}
@@ -290,7 +296,7 @@ textarea.input.nt-title{min-height:0;height:auto;font-size:15px;line-height:1.45
 
 .modal-back{position:absolute;inset:0;background:rgba(0,0,0,.6);z-index:30;display:none;align-items:flex-end}
 .modal-back.on{display:flex}
-.modal{background:var(--bg2);border-radius:18px 18px 0 0;padding:20px 16px 28px;width:100%;animation:up .2s ease}
+.modal{background:var(--bg2);border-radius:18px 18px 0 0;padding:20px 16px calc(28px + var(--bot));width:100%;animation:up .2s ease}
 .modal h2{font-size:17px;margin-bottom:12px}
 .modal .opt{padding:13px;border-radius:10px;cursor:pointer}
 .modal .opt.sel{background:rgba(111,56,255,.25);color:#fff}
