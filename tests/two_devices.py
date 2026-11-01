@@ -9,6 +9,7 @@
 Потом открыть http://127.0.0.1:8781/tests/two-devices.html — там слева «телефон», справа «Mac» и тесты.
 --old-b 1.4.0 — «Mac» считает себя старой версией (проверка самообновления).
 --b-index ФАЙЛ — «Mac» получает другой index.html (например, прошлую выкладку из git).
+--a-index ФАЙЛ — то же для «телефона» (вместе с --b-index — сравнить старую выкладку целиком).
 --delay 0.4 — каждый запрос к облаку отвечает с задержкой (как сеть до серверов Telegram).
 """
 import argparse
@@ -108,10 +109,11 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--old-b', default='', help='версия, которой притворяется второе устройство')
     ap.add_argument('--b-index', default='', help='index.html для второго устройства')
+    ap.add_argument('--a-index', default='', help='index.html для первого устройства')
     ap.add_argument('--delay', type=float, default=0.0, help='задержка ответа облака, с')
     args = ap.parse_args()
     DELAY = args.delay
-    a = ThreadingHTTPServer(('127.0.0.1', 8781), make_handler(''))
+    a = ThreadingHTTPServer(('127.0.0.1', 8781), make_handler('', args.a_index))
     b = ThreadingHTTPServer(('127.0.0.1', 8782), make_handler(args.old_b, args.b_index))
     threading.Thread(target=b.serve_forever, daemon=True).start()
     print('телефон: http://127.0.0.1:8781/  Mac: http://127.0.0.1:8782/  тесты: http://127.0.0.1:8781/tests/two-devices.html', flush=True)
