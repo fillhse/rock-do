@@ -455,7 +455,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.5.6';
+const APP_VERSION = '1.5.7';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -659,13 +659,19 @@ function pullEnd() {
   const p = pull; pull = null;
   if (p.on) setHero(p.ready && !drag, true, p.v || 0);
 }
-// трекпад и колесо (Mac): в самом верху — долгая прокрутка вверх
-let wheelPull = 0, wheelTimer;
+/* Трекпад и колесо (Mac): в самом верху — отдельная долгая прокрутка вверх. Докрутили до «Моих дел»
+   снизу — трекпад ещё долго шлёт события по инерции; они подсказку не открывают. Считаем только жест,
+   начатый уже в самом верху, после паузы (инерция идёт сплошным потоком, без пауз). */
+const WHEEL_OPEN = 900, WHEEL_PAUSE = 350;
+let wheelPull = 0, wheelArmed = false, wheelLast = 0;
 function pullWheel(e) {
-  if (heroWrap().classList.contains('open') || $('s-rock').scrollTop > 0 || e.deltaY >= 0) { wheelPull = 0; return; }
+  const now = performance.now(), gap = now - wheelLast;
+  wheelLast = now;
+  if (heroWrap().classList.contains('open') || $('s-rock').scrollTop > 0 || e.deltaY >= 0) { wheelPull = 0; wheelArmed = false; return; }
+  if (gap > WHEEL_PAUSE) { wheelArmed = true; wheelPull = 0; } // новый жест, начатый в самом верху
+  if (!wheelArmed) return; // докатились сюда по инерции
   wheelPull -= e.deltaY;
-  clearTimeout(wheelTimer); wheelTimer = setTimeout(() => { wheelPull = 0; }, 300);
-  if (wheelPull > 600) { wheelPull = 0; setHero(true, true); }
+  if (wheelPull > WHEEL_OPEN) { wheelPull = 0; wheelArmed = false; setHero(true, true); }
 }
 function plusAction() { current === 'notes' ? openNote(null) : openTaskEditor(null); }
 const openOverlay = (id) => $(id).classList.add('on');

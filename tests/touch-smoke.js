@@ -136,6 +136,17 @@
   check('тугое потягивание вниз (380 px) — подсказка открылась', heroH() > 100 && !drag);
   go('notes'); go('rock'); await sleep(50);
   check('ушли с камня и вернулись — подсказка снова спрятана', heroH() === 0);
+  // Mac: докрутили снизу до «Моих дел» — инерция трекпада подсказку не открывает; новый жест в самом верху — открывает
+  const wheel = (dy) => sc.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: dy }));
+  sc.scrollTop = 600; await sleep(400);
+  for (let i = 0; i < 80; i++) { wheel(-40); sc.scrollTop = Math.max(0, sc.scrollTop - 40); await sleep(16); } // докатились и катимся дальше
+  await sleep(300);
+  check('Mac: докрутили снизу до верха по инерции — подсказка не открылась', heroH() === 0 && sc.scrollTop === 0);
+  await sleep(400);
+  for (let i = 0; i < 16; i++) { wheel(-80); await sleep(16); }
+  await sleep(700);
+  check('Mac: отдельный жест вверх, начатый в самом верху, — подсказка открылась', heroH() > 100);
+  go('notes'); go('rock'); sc.scrollTop = 0;
   check('после жестов не осталось «призраков»', !drag && !document.querySelector('body > .card, body > .note-card, body > .done-wrap'));
 
   localStorage.removeItem('rockdo-demo');
