@@ -27,6 +27,7 @@ body{background:var(--bg1);color:var(--text);font-size:14px;overflow:hidden;
 .row{display:flex;gap:6px;align-items:center;margin-top:4px}
 .btn{flex:1;border:0;border-radius:10px;padding:9px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;
   background:rgba(255,255,255,.08);color:var(--text)}
+.tchip{flex:1;text-align:center}
 .desc{color:var(--muted);font-size:12px;line-height:1.4;margin-top:8px;min-height:34px}
 
 /* экран камня */
@@ -74,6 +75,7 @@ body{background:var(--bg1);color:var(--text);font-size:14px;overflow:hidden;
 <div class="app">
   <div class="bar">
     <div class="chips" id="chips"></div>
+    <div class="row" id="tight"></div>
     <div class="row">
       <button class="btn" id="replay">▶ Показать открытие</button>
       <button class="btn" id="hide">Спрятать</button>
@@ -105,51 +107,56 @@ body{background:var(--bg1);color:var(--text);font-size:14px;overflow:hidden;
 const $ = (id) => document.getElementById(id);
 const sc = $('sc'), wrap = $('wrap'), hero = $('hero'), img = hero.querySelector('img');
 const texts = [hero.querySelector('.phrase'), hero.querySelector('.hint')];
-const SLOP = 8, PULL_OPEN = 140;
+const SLOP = 8;
+/* Тугость: сколько вести палец, чтобы подсказка открылась. Пока не дотянул — она едва показывается
+   (к порогу видно только ~треть) и, если отпустить, уходит обратно. Случайно не откроется. */
+const TIGHT = [['Средне', 200], ['Туго', 300], ['Очень туго', 400]];
+let PULL_OPEN = 300;
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 
 /* Вариант: rubber — высота от пути пальца; anchor — откуда выезжает; draw(p, f) — вид (p — проявление,
    1 к моменту «можно отпускать»; f — доля полной высоты); spring — [отклик, затухание]; fx — добавка
    при открытии; snap — открывается сам, как только дотянули. */
-const ios = (k) => (x, full) => (1 - 1 / (x * k / full + 1)) * full;
+// резинка: к порогу видно 35% подсказки, дальше почти не растёт
+const ios = () => (x, full) => { const k = 0.54 * full / (PULL_OPEN - SLOP); return (1 - 1 / (x * k / full + 1)) * full; };
 const VARIANTS = [
   { name: 'Ровно за пальцем', desc: 'Как в 1.5.3: подсказка едет за пальцем без эффектов, отпустили — доезжает.',
-    rubber: (x, full) => Math.min(full, x * 0.4), anchor: 'top', spring: [0.3, 1] },
+    rubber: (x, full) => Math.min(full, x * 0.35 * full / (PULL_OPEN - SLOP)), anchor: 'top', spring: [0.3, 1] },
   { name: 'Apple', desc: 'Как в 1.5.5: резинка iOS, проявление из размытия, мягкая пружина.',
-    rubber: ios(0.55), anchor: 'bottom', spring: [0.5, 0.86],
+    rubber: ios(), anchor: 'bottom', spring: [0.5, 0.86],
     draw: (p) => { hero.style.opacity = p; hero.style.transform = `scale(${0.94 + 0.06 * p})`; hero.style.filter = `blur(${(1 - p) * 6}px)`; hero.style.transformOrigin = '50% 100%'; } },
   { name: 'Шторка', desc: 'Подсказка целиком съезжает сверху, как шторка уведомлений, и садится с лёгкой пружинкой.',
-    rubber: ios(0.8), anchor: 'bottom', spring: [0.45, 0.72] },
+    rubber: ios(), anchor: 'bottom', spring: [0.45, 0.72] },
   { name: 'Пружинка', desc: 'Как в 1.5.4: Рокки разворачивается и подрастает, отпустили — пружинка и прыжок.',
-    rubber: (x, full) => full * 0.5 * (1 - Math.exp(-x / 150)), anchor: 'bottom', spring: [0.5, 0.55], fx: 'fx-hop',
+    rubber: ios(), anchor: 'bottom', spring: [0.5, 0.55], fx: 'fx-hop',
     draw: (p) => { hero.style.opacity = p; hero.style.transform = `scale(${0.88 + 0.12 * p})`; hero.style.transformOrigin = '50% 100%';
       img.style.transform = `rotate(${(1 - p) * -18}deg) scale(${0.6 + 0.4 * p})`; } },
   { name: 'Створка', desc: 'Подсказка прикреплена сверху и раскладывается к тебе, как откидная крышка. Раскрылась — блик.',
-    rubber: ios(0.9), anchor: 'top', spring: [0.55, 0.78], fx: 'fx-shine',
+    rubber: ios(), anchor: 'top', spring: [0.55, 0.78], fx: 'fx-shine',
     draw: (p, f) => { wrap.style.perspective = '700px'; wrap.style.perspectiveOrigin = '50% 0';
       hero.style.transformOrigin = '50% 0'; hero.style.transform = `rotateX(${Math.acos(clamp(f)) * 180 / Math.PI}deg)`;
       hero.style.filter = `brightness(${0.35 + 0.65 * clamp(f)})`; } },
   { name: 'Капля', desc: 'Как Dynamic Island на iPhone: из маленькой капли сверху вырастает в карточку.',
-    rubber: ios(0.8), anchor: 'top', spring: [0.5, 0.7],
+    rubber: ios(), anchor: 'top', spring: [0.5, 0.7],
     draw: (p, f) => { const q = clamp(f), side = (1 - q) * 42, bottom = Math.max(0, hero.offsetHeight - f * full()); // низ капли — по краю открытого места
       hero.style.clipPath = `inset(0 ${side}% ${bottom}px ${side}% round ${18 + (1 - q) * 40}px)`;
       img.style.opacity = texts[0].style.opacity = texts[1].style.opacity = clamp((q - 0.45) / 0.4); } },
   { name: 'Рокки выглядывает', desc: 'Пока тянешь — в окошке выглядывает Рокки. Отпустил — карточка раскрывается кругом от него.',
-    rubber: ios(0.8), anchor: 'top', spring: [0.6, 0.85],
+    rubber: ios(), anchor: 'top', spring: [0.6, 0.85],
     draw: (p, f, fr) => { const grow = clamp((f - fr) / (1 - fr));
       hero.style.clipPath = `circle(${36 + p * 22 + grow * 420}px at 75px 50%)`;
       img.style.transform = `translateY(${(1 - p) * 30}px)`; } },
   { name: 'Желе', desc: 'Карточка тянется и пружинит, как желе: сжимается, пока тянешь, и колышется, раскрывшись.',
-    rubber: ios(0.8), anchor: 'top', spring: [0.5, 0.42],
+    rubber: ios(), anchor: 'top', spring: [0.5, 0.42],
     draw: (p, f) => { hero.style.transformOrigin = '50% 0'; hero.style.transform = `scale(${1 + (1 - f) * 0.08}, ${f})`; } },
   { name: 'Каскад', desc: 'Сначала появляется карточка, потом сверху падает Рокки, следом по очереди всплывает текст.',
-    rubber: ios(0.7), anchor: 'bottom', spring: [0.45, 0.9], fx: 'fx-cascade',
+    rubber: ios(), anchor: 'bottom', spring: [0.45, 0.9], fx: 'fx-cascade',
     draw: (p) => { img.style.opacity = texts[0].style.opacity = texts[1].style.opacity = 0; hero.style.opacity = 0.4 + 0.6 * p; } },
   { name: 'Свечение', desc: 'Карточка проявляется из темноты, раскрывшись — вспыхивает фиолетовым светом, текст проступает.',
-    rubber: ios(0.7), anchor: 'bottom', spring: [0.5, 0.86], fx: 'fx-glow fx-type',
+    rubber: ios(), anchor: 'bottom', spring: [0.5, 0.86], fx: 'fx-glow fx-type',
     draw: (p) => { hero.style.filter = `brightness(${0.3 + 0.7 * p}) saturate(${0.5 + 0.5 * p})`; } },
   { name: 'Магнит', desc: 'Тянешь туго, но стоит дотянуть — подсказка сама «примагничивается» и открывается, не дожидаясь, пока отпустишь.',
-    rubber: ios(0.55), anchor: 'bottom', spring: [0.42, 0.75], snap: true, fx: 'fx-shine',
+    rubber: ios(), anchor: 'bottom', spring: [0.42, 0.75], snap: true, fx: 'fx-shine',
     draw: (p) => { hero.style.opacity = 0.3 + 0.7 * p; hero.style.transform = `scale(${0.96 + 0.04 * p})`; hero.style.transformOrigin = '50% 100%'; } },
 ];
 
@@ -197,6 +204,13 @@ function pick(i) {
   wrap.style.justifyContent = V.anchor === 'bottom' ? 'flex-end' : 'flex-start';
   reset();
 }
+TIGHT.forEach(([name, px]) => {
+  const b = document.createElement('button');
+  b.className = 'chip tchip'; b.textContent = name;
+  b.onclick = () => { PULL_OPEN = px; document.querySelectorAll('.tchip').forEach((c) => c.classList.toggle('on', c === b)); reset(); };
+  if (px === PULL_OPEN) b.classList.add('on');
+  $('tight').appendChild(b);
+});
 VARIANTS.forEach((v, i) => {
   const b = document.createElement('button');
   b.className = 'chip'; b.textContent = (i + 1) + '. ' + v.name; b.onclick = () => pick(i);
