@@ -729,9 +729,10 @@ function renderDone() {
         ? 'Следующая: ' + fmtDue(src ? src.due : d.prevDue)
         : new Date(d.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
       return `
-      <div class="done-wrap" id="done-${d.id}" onpointerdown="doneTouch(event,${d.id})" oncontextmenu="return false">
+      <div class="done-wrap" id="done-${d.id}" onpointerdown="pressStart(event,${d.id},'done')"
+           onclick="if(!suppressClick)openDoneSheet(${d.id})" oncontextmenu="return false">
         <div class="card done-card ${d.fromRepeat ? 'rep' : ''}">
-          <div class="checkbox on">✓</div>
+          <div class="hit" onclick="event.stopPropagation();if(!suppressClick)restoreDone(${d.id})"><div class="checkbox on">✓</div></div>
           <div class="dt"><b></b><span>${sub}</span></div>
         </div>
       </div>`;
@@ -756,10 +757,6 @@ function restoreDone(id) {
   save(); renderTasks(); renderStats();
 }
 
-/* жесты сделанной карточки: удержание (в корзину) / тап (меню) */
-function doneTouch(e, id) {
-  holdGesture(e, e.currentTarget, id, 'done', () => { if (!suppressClick) openDoneSheet(id); });
-}
 
 /* bottom sheet по тапу */
 let dsId = null;
@@ -1103,7 +1100,7 @@ function renderStats() {
   document.getElementById('st-total').textContent = db.done.length;
 }
 // «О приложении»: версия сборки (= VERSION в sw.js) и диагностика Telegram
-const BUILD = 'v6';
+const BUILD = 'v7';
 function aboutToast() {
   const tg = window.Telegram && Telegram.WebApp;
   let s = 'rock do · версия 1.1.0 (' + BUILD + ')';
@@ -1146,13 +1143,15 @@ function pressStart(e, id, type) {
   holdGesture(e, e.currentTarget, id, type);
 }
 
-/* удержание карточки: тап → onTap (или обычный click), удержание HOLD_MS → перетаскивание.
+/* удержание карточки HOLD_MS → перетаскивание. Тап здесь НЕ обрабатываем: это обычный click
+   браузера (onclick у карточки). Свой «тап по отпусканию пальца» открывал меню раньше click,
+   и тот же click тут же закрывал его, попадая в фон меню.
    Палец ведём через touch-события: pointer-события браузер отбирает (pointercancel), как только
    решит, что это прокрутка, а preventDefault у touchmove после «подъёма» карточки надёжно её запрещает.
    Слушаем сам элемент под пальцем: при перестановке список перерисовывается, элемент выпадает
    из документа, и до document события касания больше не всплывают — а ему самому приходят всегда. */
 const HOLD_MS = 280, SLOP = 8;
-function holdGesture(e, card, id, type, onTap) {
+function holdGesture(e, card, id, type) {
   if (e.button > 0) return;
   if (drag) endDrag(true); // осиротевший перенос (например, второй палец) — вернуть карточку на место
   const touch = e.pointerType !== 'mouse';
@@ -1168,10 +1167,9 @@ function holdGesture(e, card, id, type, onTap) {
     else if (Math.hypot(p.clientX - sx, p.clientY - sy) > SLOP) finish(); // это прокрутка
   };
   const up = (ev) => {
-    const p = pt(ev), wasLifted = lifted;
+    const wasLifted = lifted;
     finish();
     if (wasLifted) endDrag(ev.type === CANCEL);
-    else if (ev.type === UP && onTap && Math.hypot(p.clientX - sx, p.clientY - sy) < SLOP) onTap();
   };
   function finish() {
     clearTimeout(timer);
