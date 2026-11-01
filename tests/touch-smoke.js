@@ -161,12 +161,21 @@
   await mousePull(380);
   check('ноутбук: потянул мышью на 380 px — подсказка открылась, редактор дела не открылся', heroH() > 100 && !document.getElementById('o-task').classList.contains('on'));
   go('notes'); go('rock'); sc.scrollTop = 0;
-  // Mac: колесо подсказку не открывает — ни докрутка снизу, ни прокрутка вверх в самом верху
-  const wheel = (dy) => sc.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: dy }));
-  sc.scrollTop = 0; await sleep(800);
-  for (let i = 0; i < 30; i++) { wheel(-80); await sleep(16); }
+  // трекпад: докрутили снизу до «Моих дел» — инерция (тот же поток) подсказку не трогает;
+  // отдельный жест в самом верху туго тянет её: мало — уходит обратно, на высоту экрана — открывается
+  const wheel = (dy, t = sc) => t.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: dy }));
+  go('notes'); go('rock'); sc.scrollTop = 600; await sleep(300);
+  for (let i = 0; i < 60; i++) { wheel(-40); sc.scrollTop = Math.max(0, sc.scrollTop - 40); await sleep(16); }
   await sleep(500);
-  check('Mac: колесо вверх в самом верху — подсказка не вылезает', heroH() === 0 && sc.scrollTop === 0);
+  check('трекпад: докрутили до верха по инерции — подсказка не вылезла', heroH() === 0 && sc.scrollTop === 0);
+  for (let i = 0; i < 5; i++) { wheel(-80); await sleep(16); }
+  await sleep(30); const partH = heroH();
+  await sleep(900);
+  check('трекпад: короткий жест в самом верху — подсказка туго показалась и ушла обратно', partH > 5 && partH < 80 && heroH() === 0);
+  for (let i = 0; i < 20; i++) { wheel(-80); await sleep(16); }
+  await sleep(900);
+  check('трекпад: длинный жест в самом верху — подсказка открылась', heroH() > 100);
+  go('notes'); go('rock'); sc.scrollTop = 0;
   // облако прислало правку, пока палец держит карточку (ждём удержания) — список не перерисовывается под пальцем
   { const card0 = cards()[0], el = card0.querySelector('b'), [x, y] = at(el, 20);
     el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: x, clientY: y, button: 0 }));

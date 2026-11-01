@@ -30,7 +30,8 @@ body{background:var(--bg1);color:var(--text);font-size:14px;
 .app{position:relative;height:100%;max-width:480px;margin:0 auto;overflow:hidden;
   background:linear-gradient(180deg,var(--bg1),var(--bg2))}
 
-.screen{position:absolute;inset:0;overflow-y:auto;padding:calc(18px + var(--top)) 16px calc(116px + var(--bot));display:none}
+/* overscroll-behavior: без «резинки» — в конце прокрутки список не улетает */
+.screen{position:absolute;inset:0;overflow-y:auto;overscroll-behavior:none;padding:calc(18px + var(--top)) 16px calc(116px + var(--bot));display:none}
 .screen.on{display:block}
 h1{font-size:21px;margin-bottom:4px}
 .sub{color:var(--muted);font-size:12px;margin-bottom:16px}
@@ -456,7 +457,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.6.2';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -1133,22 +1134,25 @@ function endDrag(cancelled) {
 
 /* ===================== подсказка над «Моими делами» ===================== */
 /* Подсказка с Рокки спрятана: камень открывается сразу с «Моих дел». Открывается, как «потяни, чтобы
-   обновить»: список в самом верху, тянем вниз — она туго выезжает и, если протянуть на PULL_OPEN,
-   открывается целиком; не дотянули — уходит обратно. На телефоне — пальцем, на компьютере — так же
-   мышью или трекпадом: зажал и потянул вниз. Обычная прокрутка не меняется: жест работает только там,
-   где прокручивать вверх уже некуда. Уходим с камня — снова прячется. */
-const PULL_OPEN = 350; // тугое: почти полэкрана пальцем
+   обновить»: список в самом верху, тянем вниз — она туго выезжает следом; дотянули — открывается,
+   нет — уходит обратно. Тянуть можно пальцем, мышью (зажал и повёл) и двумя пальцами по трекпаду.
+   Насколько тянуть — доля высоты экрана, а не пиксели: на любом экране одинаково по ощущению.
+   Обычная прокрутка не меняется: жест работает только там, где прокручивать вверх уже некуда.
+   Уходим с камня — снова прячется. */
+const PULL_SHARE = 0.4;  // пальцем или мышью — на 40% высоты экрана
+const WHEEL_SHARE = 1;   // трекпадом или колесом — прокрутить на высоту экрана
+const WHEEL_GAP = 150;   // пауза между событиями прокрутки, после которой это уже новый жест
 const heroWrap = () => $('hero-wrap');
 const heroFull = () => { const h = heroWrap().firstElementChild; return h.offsetHeight + parseFloat(getComputedStyle(h).marginBottom); };
-// резинка как в iOS: чем дальше тянем, тем туже — к порогу видно около трети подсказки, дальше почти не растёт
-const RUBBER = 0.54 / (PULL_OPEN - SLOP);
-const rubber = (x, full) => (1 - 1 / (x * RUBBER + 1)) * full;
-const unrubber = (h, full) => (1 / (1 - Math.min(0.99, h / full)) - 1) / RUBBER;
+const screenH = () => $('s-rock').clientHeight;
+// резинка как в iOS: чем дальше тянем, тем туже; t — доля пути до порога, к порогу видно около трети подсказки
+const rubber = (t, full) => (1 - 1 / (Math.max(0, t) * 0.54 + 1)) * full;
+const unrubber = (h, full) => (1 / (1 - Math.min(0.99, h / full)) - 1) / 0.54;
 // высота → вид (--p в CSS): к моменту «можно отпускать» подсказка уже проявилась целиком
 function heroShow(h, full) {
   const w = heroWrap();
   w.style.height = Math.max(0, h) + 'px';
-  w.style.setProperty('--p', Math.min(1, Math.max(0, h / rubber(PULL_OPEN - SLOP, full))).toFixed(3));
+  w.style.setProperty('--p', Math.min(1, Math.max(0, h / rubber(1, full))).toFixed(3));
 }
 function heroFinish(open) {
   const w = heroWrap();
@@ -1156,7 +1160,7 @@ function heroFinish(open) {
   w.style.height = open ? heroFull() + 'px' : '';
 }
 /* Пружина как у Apple (SwiftUI .spring: отклик 0,5 с, затухание 0,7 — садится с лёгким отскоком),
-   стартует со скоростью пальца, поэтому движение продолжается, а не начинается заново. */
+   стартует со скоростью жеста, поэтому движение продолжается, а не начинается заново. */
 let heroAnim = 0;
 function heroSpring(to, v) {
   const w = heroWrap(), full = heroFull(), k = (2 * Math.PI / 0.5) ** 2, c = 4 * Math.PI * 0.7 / 0.5;
@@ -1180,10 +1184,27 @@ function setHero(open, animate, v = 0) {
   heroWrap().classList.remove('hop');
   if (animate) heroSpring(open ? heroFull() : 0, v); else heroFinish(open);
 }
-let pull = null;
-function pullStart(y) {
-  pull = !heroWrap().classList.contains('open') && $('s-rock').scrollTop <= 0 ? { y } : null;
+const canPull = () => current === 'rock' && !drag && !heroWrap().classList.contains('open') && $('s-rock').scrollTop <= 0;
+// жест начался: подхватили на лету (подсказка ещё уходит) — продолжаем с той же высоты, без скачка
+function pullBegin(g) {
+  cancelAnimationFrame(heroAnim);
+  g.full = heroFull();
+  g.t0 = unrubber(heroWrap().offsetHeight, g.full);
 }
+// t — доля пути до порога; дотянули — щелчок, как в iOS
+function pullTo(g, t) {
+  const h = rubber(g.t0 + t, g.full), now = performance.now();
+  if (g.at) g.v = (h - g.h) / Math.max(1, now - g.at) * 1000; // скорость, с которой отпустят
+  g.h = h; g.at = now;
+  heroShow(h, g.full);
+  if (t >= 1 && !g.ready) haptic('drag');
+  g.ready = t >= 1;
+}
+function pullRelease(g) { setHero(!!g.ready && !drag, true, g.v || 0); }
+
+// палец и мышь
+let pull = null;
+function pullStart(y) { pull = canPull() ? { y, open: screenH() * PULL_SHARE } : null; }
 function pullMove(y, e) {
   if (!pull || drag) return; // поднятую карточку не трогаем
   const d = y - pull.y;
@@ -1192,34 +1213,43 @@ function pullMove(y, e) {
     // браузеру прокрутку на весь жест — список «не листался», если палец, коснувшись, дрогнул вниз.
     if (Math.abs(d) < SLOP) return;
     if (d < 0) { pull = null; return; } // повели вверх — это обычная прокрутка
-    // подхватили на лету (ещё закрывается) — продолжаем с той же высоты, без скачка
-    cancelAnimationFrame(heroAnim);
-    pull.on = true; pull.full = heroFull();
-    pull.x0 = unrubber(heroWrap().offsetHeight, pull.full);
+    pull.on = true; pullBegin(pull);
   }
   if (e.cancelable) e.preventDefault(); // вверх прокручивать некуда — тянем подсказку
-  const h = rubber(pull.x0 + d - SLOP, pull.full), now = performance.now();
-  if (pull.t) pull.v = (h - pull.h) / Math.max(1, now - pull.t) * 1000; // скорость, с которой отпустят
-  pull.h = h; pull.t = now;
-  heroShow(h, pull.full);
-  const ready = d >= PULL_OPEN;
-  if (ready && !pull.ready) haptic('drag'); // как щелчок в iOS: дотянули
-  pull.ready = ready;
+  pullTo(pull, (d - SLOP) / (pull.open - SLOP));
 }
 function pullEnd() {
   if (!pull) return;
   const p = pull; pull = null;
   if (!p.on) return;
-  setHero(p.ready && !drag, true, p.v || 0);
+  pullRelease(p);
   suppressClick = true; setTimeout(() => { suppressClick = false; }, 300); // мышь отпустили над карточкой — это не клик по ней
 }
-// Колесо листает экран, где бы ни стоял курсор: над полями по бокам от колонки приложения (широкое окно
-// Telegram на Mac) и над нижней панелью — тоже. Над самим экраном листает браузер.
-document.addEventListener('wheel', (e) => {
-  if (e.target.closest('.screen') || document.querySelector('.overlay.on, .sheet-back.on')) return;
+
+/* Трекпад и колесо. Жест — непрерывный поток событий прокрутки (пауза больше WHEEL_GAP — уже новый).
+   Тянет подсказку только поток, НАЧАТЫЙ, когда список уже в самом верху: докрутили до «Моих дел»
+   снизу — инерция идёт тем же потоком и подсказку не трогает. Поток кончился — отпустили. */
+let wheelPull = null, wheelLast = 0, wheelTimer = 0;
+function onWheel(e) {
+  const now = performance.now(), fresh = now - wheelLast > WHEEL_GAP;
+  wheelLast = now;
   const sc = document.querySelector('.screen.on');
-  if (sc) sc.scrollTop += e.deltaY;
-}, { passive: true });
+  if (!sc || document.querySelector('.overlay.on, .sheet-back.on')) return;
+  if (fresh) wheelPull = e.deltaY < 0 && canPull() && !pull ? { x: 0, open: screenH() * WHEEL_SHARE } : null;
+  if (wheelPull) {
+    e.preventDefault(); // тянем подсказку — список не двигаем
+    if (!wheelPull.on) { wheelPull.on = true; pullBegin(wheelPull); }
+    wheelPull.x = Math.max(0, wheelPull.x - e.deltaY);
+    pullTo(wheelPull, wheelPull.x / wheelPull.open);
+    clearTimeout(wheelTimer);
+    wheelTimer = setTimeout(() => { const g = wheelPull; wheelPull = null; if (g) pullRelease(g); }, WHEEL_GAP);
+    return;
+  }
+  // курсор над полями по бокам от колонки приложения (широкое окно Telegram на Mac) или над нижней
+  // панелью — листаем экран сами; над самим экраном листает браузер
+  if (!e.target.closest('.screen')) sc.scrollTop += e.deltaY;
+}
+document.addEventListener('wheel', onWheel, { passive: false });
 
 /* ===================== облако Telegram ===================== */
 /* Копия данных в CloudStorage Telegram: она привязана к аккаунту и боту, а не к телефону — переживёт
