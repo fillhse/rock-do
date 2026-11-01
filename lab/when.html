@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Rocky — окно «Когда сделать»</title>
+<style>
+/* Песочница: два варианта окна «Когда сделать» по образцу проверенных приложений.
+   Общие правила обоих: кнопка «Готово» прибита к низу и никуда не прыгает; разделы не исчезают,
+   а сворачиваются в строку со значением; всё нажимается одним пальцем, без мелких целей.
+   A — «Как в Напоминаниях iPhone»: строки Дата / Время / Повтор, открывается одна за раз.
+   B — «Календарь» (как в TickTick и Todoist): месяц всегда на виду, ниже — Время и Повтор. */
+:root{
+  --bg1:#030912; --bg2:#07131c; --card:rgba(255,255,255,.05); --card2:rgba(255,255,255,.08); --line:rgba(255,255,255,.07);
+  --accent:#4e20c8; --accent2:#6f38ff; --orange:#ffa42e; --text:#eef0f6; --muted:#8b93a7; --radius:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{background:var(--bg1);color:var(--text);font-size:15px;overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;flex-direction:column}
+.ctl{flex:none;display:flex;gap:6px;padding:8px 10px;background:#050c18;border-bottom:1px solid var(--line)}
+.ctl button{flex:1;border:1px solid rgba(255,255,255,.12);background:transparent;color:var(--text);border-radius:999px;padding:7px;font:inherit;font-size:12px;cursor:pointer}
+.ctl button.on{background:var(--accent2);border-color:var(--accent2)}
+
+/* окно */
+.sheet{flex:1;display:flex;flex-direction:column;min-height:0;max-width:480px;width:100%;margin:0 auto;
+  background:linear-gradient(180deg,var(--bg1),var(--bg2))}
+.head{flex:none;display:flex;align-items:center;justify-content:space-between;padding:16px 16px 6px}
+.head h1{font-size:21px}
+.x{width:34px;height:34px;border-radius:50%;border:none;background:var(--card2);color:var(--text);font-size:15px;cursor:pointer}
+.sum{flex:none;padding:0 16px 12px;color:var(--muted);font-size:13px;min-height:30px}
+.sum b{color:var(--text);font-weight:600}
+.body{flex:1;overflow-y:auto;padding:0 16px 16px;overscroll-behavior:contain}
+.foot{flex:none;padding:12px 16px 18px;border-top:1px solid var(--line);background:var(--bg2)}
+.done{width:100%;border:none;border-radius:var(--radius);padding:15px;font:inherit;font-size:16px;font-weight:600;color:#fff;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));cursor:pointer}
+
+/* быстрые даты */
+.quick{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px}
+.quick button{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:12px;padding:10px 4px;
+  font:inherit;font-size:13px;cursor:pointer;line-height:1.2}
+.quick button small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.quick button.on{border-color:var(--accent2);background:rgba(111,56,255,.22)}
+
+/* строки-разделы */
+.group{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:12px}
+.rowx{display:flex;align-items:center;gap:12px;padding:14px;min-height:52px;cursor:pointer}
+.rowx + .rowx, .rowx + .panel, .panel + .rowx{border-top:1px solid var(--line)}
+.ico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex:none;font-size:15px}
+.rowx .name{flex:1}
+.rowx .val{color:var(--muted);font-size:14px}
+.rowx .val.on{color:var(--accent2);font-weight:600}
+.rowx.off{cursor:default}
+.rowx.off .name,.rowx.off .val{opacity:.55}
+.panel{padding:6px 12px 12px}
+
+/* переключатель */
+.sw{width:50px;height:30px;border-radius:15px;background:rgba(255,255,255,.14);position:relative;flex:none;transition:background .2s}
+.sw:after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:transform .2s}
+.sw.on{background:var(--accent2)}
+.sw.on:after{transform:translateX(20px)}
+
+/* календарь: всегда 6 недель — высота не меняется от месяца к месяцу */
+.cal-h{display:flex;align-items:center;justify-content:space-between;padding:4px 2px 8px}
+.cal-h b{font-size:15px;text-transform:capitalize}
+.cal-h button{width:34px;height:34px;border-radius:50%;border:none;background:var(--card2);color:var(--text);font-size:17px;cursor:pointer}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+.cal .wd{color:var(--muted);font-size:11px;padding:4px 0}
+.cal .d{height:38px;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:15px;cursor:pointer;margin:0 auto;width:38px}
+.cal .d.other{color:#4a5263}
+.cal .d.past{color:#3b4250;cursor:default}
+.cal .d.today{color:var(--orange);font-weight:700}
+.cal .d.sel{background:var(--accent2);color:#fff;font-weight:700}
+.cal .d.rep{box-shadow:inset 0 0 0 1.5px rgba(111,56,255,.6)}
+
+/* колёса времени: рамка выбора стоит на месте */
+.wheels{display:flex;gap:8px;position:relative;padding:4px 0}
+.wheels:before{content:'';position:absolute;left:0;right:0;top:calc(4px + 86px);height:43px;border-radius:10px;background:rgba(111,56,255,.25);pointer-events:none}
+.wheels .colon{position:absolute;left:50%;top:calc(4px + 86px);height:43px;line-height:43px;transform:translateX(-50%);font-weight:700}
+.wheel{flex:1;height:215px;overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none;position:relative}
+.wheel::-webkit-scrollbar{display:none}
+.wheel .pad{height:86px}
+.wheel .item{height:43px;display:flex;align-items:center;justify-content:center;scroll-snap-align:center;color:var(--muted);font-size:20px;cursor:pointer}
+.wheel .item.sel{color:#fff;font-weight:600}
+
+/* повтор */
+.opt{display:flex;align-items:center;gap:10px;padding:12px 4px;cursor:pointer;font-size:15px}
+.opt + .opt{border-top:1px solid var(--line)}
+.opt .r{width:20px;height:20px;border-radius:50%;border:2px solid rgba(255,255,255,.25);flex:none}
+.opt.on .r{border-color:var(--accent2);background:radial-gradient(circle,var(--accent2) 45%,transparent 50%)}
+.opt small{color:var(--muted);font-size:12px;margin-left:auto}
+.days{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;padding:4px 0 6px}
+.days button{height:40px;border-radius:50%;border:1.5px solid rgba(255,255,255,.16);background:none;color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
+.days button.on{background:var(--accent2);border-color:var(--accent2);color:#fff}
+.note{color:var(--muted);font-size:12px;padding:6px 2px 0;line-height:1.4}
+/* вариант C */
+.lbl2{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);font-size:12px;margin:4px 2px 8px}
+.lbl2 button{border:none;background:none;color:var(--accent2);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:14px}
+.week button{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:12px;padding:7px 0;font:inherit;cursor:pointer;line-height:1.2}
+.week button small{display:block;color:var(--muted);font-size:10px}
+.week button.today small{color:var(--orange)}
+.week button.on{background:var(--accent2);border-color:var(--accent2)}
+.week button.on small{color:#fff}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.chips button{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;padding:9px 13px;font:inherit;font-size:14px;cursor:pointer}
+.chips button small{color:var(--muted);font-size:12px;margin-left:4px}
+.chips button.on{background:rgba(111,56,255,.28);border-color:var(--accent2)}
+.chips button.on small{color:#cdbfff}
+.sect.off{opacity:.4;pointer-events:none}
+</style>
+</head>
+<body>
+  <div class="ctl">
+    <button data-v="A" class="on">A · как в Напоминаниях</button>
+    <button data-v="B">B · календарь</button>
+    <button data-v="C">C · кнопками</button>
+  </div>
+  <div class="sheet">
+    <div class="head"><h1>Когда сделать</h1><button class="x" title="Закрыть">✕</button></div>
+    <div class="sum" id="sum"></div>
+    <div class="body" id="body"></div>
+    <div class="foot"><button class="done" id="done">Готово</button></div>
+  </div>
+<script>
+const $ = (id) => document.getElementById(id);
+const DAY = 864e5, WD = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const isoDay = (d) => ((d.getDay() + 6) % 7) + 1;
+const startOf = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const today = startOf(new Date());
+const two = (n) => String(n).padStart(2, '0');
+const fmtDate = (d) => {
+  const diff = Math.round((startOf(d) - today) / DAY);
+  if (diff === 0) return 'Сегодня';
+  if (diff === 1) return 'Завтра';
+  return d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/^./, (c) => c.toUpperCase());
+};
+
+/* состояние: date — день (или null — без срока); time — {h, m} или null (весь день); rep — повтор */
+const st = { v: 'A', date: new Date(today.getTime() + DAY), time: null, rep: 'never', days: [], open: 'date', month: null };
+
+const REPS = () => {
+  const d = st.date || today;
+  return [
+    ['never', 'Никогда'],
+    ['daily', 'Каждый день'],
+    ['weekdays', 'По будням', 'Пн–Пт'],
+    ['weekly', 'Каждую неделю', 'по ' + d.toLocaleDateString('ru-RU', { weekday: 'short' })],
+    ['monthly', 'Каждый месяц', d.getDate() + '-го'],
+    ['days', 'Свои дни'],
+  ];
+};
+function repText() {
+  if (st.rep === 'days') return st.days.length === 7 ? 'Каждый день' : st.days.join() === '1,2,3,4,5' ? 'По будням' : st.days.length ? st.days.map((x) => WD[x - 1]).join(', ') : 'Свои дни';
+  const r = REPS().find((x) => x[0] === st.rep);
+  return r[0] === 'never' ? 'Никогда' : r[1] + (r[2] ? ' (' + r[2] + ')' : '');
+}
+function summary() {
+  if (!st.date) { $('sum').innerHTML = 'Без срока'; return; }
+  $('sum').innerHTML = `<b>${fmtDate(st.date)}</b> · ${st.time ? two(st.time.h) + ':' + two(st.time.m) : 'весь день'}` +
+    (st.rep !== 'never' ? ' · ' + repText().toLowerCase() : '');
+}
+
+const ICO = {
+  date: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><rect x="4" y="5.5" width="16" height="14" rx="3"/><path d="M4 10h16M9 3.5v4M15 3.5v4"/></svg>',
+  time: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/></svg>',
+  rep: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 4l3 3-3 3"/><path d="M4 11V9a2 2 0 0 1 2-2h14"/><path d="M7 20l-3-3 3-3"/><path d="M20 13v2a2 2 0 0 1-2 2H4"/></svg>',
+};
+/* быстрые даты: A и B — «Выходные» (суббота), C — «След. неделя» (понедельник) */
+function quickDates() {
+  const third = new Date(today);
+  if (st.v === 'C') { do third.setDate(third.getDate() + 1); while (isoDay(third) !== 1); }
+  else while (isoDay(third) !== 6) third.setDate(third.getDate() + 1);
+  return [['Сегодня', today], ['Завтра', new Date(today.getTime() + DAY)], [st.v === 'C' ? 'След. неделя' : 'Выходные', third], ['Без срока', null]];
+}
+/* ---------- части ---------- */
+function quick() {
+  const opts = quickDates();
+  return `<div class="quick">${opts.map(([l, d], i) => {
+    const on = d ? st.date && +startOf(st.date) === +d : !st.date;
+    const sub = d ? d.toLocaleDateString('ru-RU', { weekday: 'short' }) : '';
+    return `<button class="${on ? 'on' : ''}" data-q="${i}">${l}${sub ? `<small>${sub}</small>` : '<small>&nbsp;</small>'}</button>`;
+  }).join('')}</div>`;
+}
+function calendar() {
+  const base = st.month || startOf(st.date || today);
+  const first = new Date(base.getFullYear(), base.getMonth(), 1);
+  const start = new Date(first); start.setDate(1 - (isoDay(first) - 1));
+  const cells = Array.from({ length: 42 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return d; });
+  const repDay = (d) => st.rep === 'daily' || (st.rep === 'weekdays' && isoDay(d) <= 5) || (st.rep === 'weekly' && st.date && isoDay(d) === isoDay(st.date)) ||
+    (st.rep === 'days' && st.days.includes(isoDay(d))) || (st.rep === 'monthly' && st.date && d.getDate() === st.date.getDate());
+  return `<div class="cal-h"><button data-m="-1">‹</button><b>${first.toLocaleDateString('ru-RU', { month: 'long' })} ${first.getFullYear()}</b><button data-m="1">›</button></div>
+    <div class="cal">${WD.map((w) => `<div class="wd">${w}</div>`).join('')}${cells.map((d) => {
+      const c = ['d'];
+      if (d.getMonth() !== first.getMonth()) c.push('other');
+      if (d < today) c.push('past');
+      if (+d === +today) c.push('today');
+      if (st.date && +d === +startOf(st.date)) c.push('sel');
+      else if (st.date && d > startOf(st.date) && repDay(d)) c.push('rep');
+      return `<div class="${c.join(' ')}" data-d="${+d}">${d.getDate()}</div>`;
+    }).join('')}</div>`;
+}
+function timePanel() {
+  return `<div class="wheels"><div class="wheel" id="w-h"></div><span class="colon">:</span><div class="wheel" id="w-m"></div></div>`;
+}
+function repPanel() {
+  return REPS().map(([v, l, sub]) => `<div class="opt${st.rep === v ? ' on' : ''}" data-r="${v}"><span class="r"></span>${l}${sub ? `<small>${sub}</small>` : ''}</div>`).join('') +
+    (st.rep === 'days' ? `<div class="days">${WD.map((w, i) => `<button class="${st.days.includes(i + 1) ? 'on' : ''}" data-wd="${i + 1}">${w}</button>`).join('')}</div>` : '');
+}
+const row = (key, ico, color, name, val, valOn, extra = '') => `<div class="rowx${!st.date && key !== 'date' ? ' off' : ''}" data-open="${key}">
+  <span class="ico" style="background:${color}">${ico}</span><span class="name">${name}</span>${extra || `<span class="val${valOn ? ' on' : ''}">${val}</span>`}</div>`;
+
+/* ---------- вариант C: всё кнопками, без раскрытия строк ----------
+   День — неделя строкой (месяц по нажатию), время — готовые «утро / день / вечер» (точное — колесом),
+   повтор — кружки дней недели прямо на экране. Обычное дело ставится в два нажатия. */
+const TIMES = [['Весь день', null], ['Утро', [9, 0]], ['День', [13, 0]], ['Вечер', [19, 0]]];
+function variantC() {
+  const week = Array.from({ length: 7 }, (_, i) => new Date(today.getTime() + i * DAY));
+  const off = st.date ? '' : ' off';
+  const preset = TIMES.findIndex(([, t]) => (t ? st.time && st.time.h === t[0] && st.time.m === t[1] : !st.time));
+  const custom = !!st.time && preset < 0;
+  const rc = st.rep === 'never' ? 0 : st.rep === 'monthly' ? 3 : st.days.length === 7 ? 1 : st.days.join() === '1,2,3,4,5' ? 2 : -1;
+  return `<div class="lbl2"><span>День</span><button data-mo="1">${st.monthOpen ? 'Свернуть' : 'Весь месяц'}</button></div>
+    ${st.monthOpen ? `<div class="group"><div class="panel" style="padding-top:10px">${calendar()}</div></div>` :
+      `<div class="week">${week.map((d) => `<button class="${+d === +today ? 'today ' : ''}${st.date && +d === +startOf(st.date) ? 'on' : ''}" data-d="${+d}">
+        <small>${+d === +today ? 'сег' : WD[isoDay(d) - 1].toLowerCase()}</small>${d.getDate()}</button>`).join('')}</div>`}
+    <div class="sect${off}"><div class="lbl2"><span>Время</span></div>
+    <div class="chips">${TIMES.map(([l, t], i) => `<button class="${i === preset ? 'on' : ''}" data-tc="${i}">${l}${t ? `<small>${two(t[0])}:${two(t[1])}</small>` : ''}</button>`).join('')}
+      <button class="${custom || st.customOpen ? 'on' : ''}" data-tc="custom">${custom ? two(st.time.h) + ':' + two(st.time.m) : 'Другое…'}</button></div>
+    ${st.customOpen && st.time ? `<div class="group"><div class="panel">${timePanel()}</div></div>` : ''}
+    <div class="lbl2"><span>Повтор</span></div>
+    <div class="chips">${['Нет', 'Каждый день', 'По будням', 'Каждый месяц'].map((l, i) => `<button class="${i === rc ? 'on' : ''}" data-rc="${i}">${l}</button>`).join('')}</div>
+    <div class="days">${WD.map((w, i) => `<button class="${st.rep === 'days' && st.days.includes(i + 1) ? 'on' : ''}" data-wd="${i + 1}">${w}</button>`).join('')}</div></div>`;
+}
+
+/* ---------- варианты ---------- */
+function render() {
+  summary();
+  const timeVal = st.time ? two(st.time.h) + ':' + two(st.time.m) : 'Весь день';
+  const sw = `<span class="sw${st.time ? ' on' : ''}" data-sw="1"></span>`;
+  let html = quick();
+  if (st.v === 'C') html += variantC();
+  else if (st.v === 'A') {
+    html += `<div class="group">
+      ${row('date', ICO.date, '#e5484d', 'Дата', st.date ? fmtDate(st.date) : 'Без срока', st.open === 'date')}
+      ${st.open === 'date' && st.date !== undefined ? `<div class="panel">${calendar()}</div>` : ''}
+      ${row('time', ICO.time, '#3e7bfa', 'Время', timeVal, st.open === 'time', `<span class="val${st.open === 'time' ? ' on' : ''}" style="margin-right:6px">${st.time ? timeVal : ''}</span>${sw}`)}
+      ${st.open === 'time' && st.time && st.date ? `<div class="panel">${timePanel()}</div>` : ''}
+      ${row('rep', ICO.rep, '#6b7280', 'Повтор', repText(), st.open === 'rep')}
+      ${st.open === 'rep' && st.date ? `<div class="panel">${repPanel()}</div>` : ''}
+    </div>`;
+  } else {
+    html += `<div class="group"><div class="panel" style="padding-top:10px">${calendar()}</div></div>
+      <div class="group">
+      ${row('time', ICO.time, '#3e7bfa', 'Время', timeVal, st.open === 'time', `<span class="val${st.open === 'time' ? ' on' : ''}" style="margin-right:6px">${st.time ? timeVal : ''}</span>${sw}`)}
+      ${st.open === 'time' && st.time && st.date ? `<div class="panel">${timePanel()}</div>` : ''}
+      ${row('rep', ICO.rep, '#6b7280', 'Повтор', repText(), st.open === 'rep')}
+      ${st.open === 'rep' && st.date ? `<div class="panel">${repPanel()}</div>` : ''}
+    </div>`;
+  }
+  if (st.rep === 'days' && st.date) html += `<div class="note">Первый раз — ${fmtDate(st.date)}, дальше по выбранным дням.</div>`;
+  const keep = $('body').scrollTop;
+  $('body').innerHTML = html;
+  $('body').scrollTop = keep;
+  if ($('w-h')) {
+    wheel($('w-h'), Array.from({ length: 24 }, (_, i) => two(i)), st.time.h, (i) => { st.time.h = i; summary(); updTimeVal(); });
+    wheel($('w-m'), Array.from({ length: 12 }, (_, i) => two(i * 5)), Math.round(st.time.m / 5) % 12, (i) => { st.time.m = i * 5; summary(); updTimeVal(); });
+  }
+}
+function updTimeVal() { const v = document.querySelector('[data-open="time"] .val'); if (v) v.textContent = two(st.time.h) + ':' + two(st.time.m); }
+
+/* колесо: закольцовано, рамка стоит, значение под рамкой выделено сразу */
+const IH = 43;
+function wheel(el, items, sel, onSel) {
+  const len = items.length, reps = 9, mid = 4, period = len * IH;
+  el.innerHTML = '<div class="pad"></div>' + Array.from({ length: reps * len }, (_, i) => `<div class="item">${items[i % len]}</div>`).join('') + '<div class="pad"></div>';
+  const cells = el.querySelectorAll('.item');
+  let lit = null, t;
+  const at = () => Math.round(el.scrollTop / IH);
+  const light = (i) => { if (cells[i] === lit) return; if (lit) lit.classList.remove('sel'); (lit = cells[i]).classList.add('sel'); };
+  el.onscroll = () => {
+    if (el.scrollTop < 2 * period || el.scrollTop > (reps - 2) * period) el.scrollTop = mid * period + (el.scrollTop % period);
+    light(at()); clearTimeout(t); t = setTimeout(() => onSel(at() % len), 80);
+  };
+  cells.forEach((c, i) => c.onclick = () => el.scrollTo({ top: i * IH, behavior: 'smooth' }));
+  el.scrollTop = (mid * len + sel) * IH; light(mid * len + sel);
+}
+
+/* ---------- нажатия ---------- */
+$('body').addEventListener('click', (e) => {
+  const q = e.target.closest('[data-q]'), d = e.target.closest('[data-d]'), m = e.target.closest('[data-m]'),
+    sw = e.target.closest('[data-sw]'), op = e.target.closest('[data-open]'), r = e.target.closest('[data-r]'), wd = e.target.closest('[data-wd]');
+  if (q) {
+    st.date = quickDates()[+q.dataset.q][1]; st.month = null;
+    if (!st.date) { st.rep = 'never'; st.time = null; }
+  } else if (d) {
+    if (d.classList.contains('past')) return;
+    st.date = new Date(+d.dataset.d); st.month = null;
+  } else if (m) {
+    const base = st.month || startOf(st.date || today);
+    st.month = new Date(base.getFullYear(), base.getMonth() + +m.dataset.m, 1);
+  } else if (sw) {
+    if (!st.date) return;
+    st.time = st.time ? null : { h: 10, m: 0 };
+    st.open = st.time ? 'time' : st.open;
+  } else if (op) {
+    if (!st.date && op.dataset.open !== 'date') return;
+    st.open = st.open === op.dataset.open && st.v === 'A' ? null : op.dataset.open;
+    if (op.dataset.open === 'time' && !st.time) { st.time = { h: 10, m: 0 }; }
+  } else if (e.target.closest('[data-mo]')) {
+    st.monthOpen = !st.monthOpen; st.month = null;
+  } else if (e.target.closest('[data-tc]')) {
+    const v = e.target.closest('[data-tc]').dataset.tc;
+    if (v === 'custom') { st.customOpen = !st.customOpen || !st.time; if (!st.time) st.time = { h: 10, m: 0 }; }
+    else { const t = TIMES[+v][1]; st.time = t ? { h: t[0], m: t[1] } : null; st.customOpen = false; }
+  } else if (e.target.closest('[data-rc]')) {
+    const i = +e.target.closest('[data-rc]').dataset.rc;
+    if (i === 0) st.rep = 'never';
+    else if (i === 3) st.rep = 'monthly';
+    else { st.rep = 'days'; st.days = i === 1 ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 5]; }
+  } else if (r) {
+    st.rep = r.dataset.r;
+    if (st.rep === 'days' && !st.days.length) st.days = [isoDay(st.date)];
+  } else if (wd) {
+    const x = +wd.dataset.wd;
+    if (st.v === 'C' && st.rep !== 'days') { st.rep = 'days'; st.days = []; }
+    st.days = st.days.includes(x) ? (st.days.length > 1 || st.v === 'C' ? st.days.filter((y) => y !== x) : st.days) : [...st.days, x].sort();
+    if (!st.days.length) { st.rep = 'never'; render(); return; }
+    // первый раз — ближайший выбранный день, начиная с сегодня
+    const f = new Date(today); while (!st.days.includes(isoDay(f))) f.setDate(f.getDate() + 1);
+    st.date = f;
+  } else return;
+  render();
+});
+document.querySelectorAll('.ctl button').forEach((b) => b.onclick = () => {
+  st.v = b.dataset.v; st.open = st.v === 'A' ? 'date' : null; st.monthOpen = false; st.customOpen = false;
+  document.querySelectorAll('.ctl button').forEach((x) => x.classList.toggle('on', x === b));
+  render();
+});
+$('done').onclick = () => alert('Сохранится: ' + $('sum').textContent);
+render();
+</script>
+</body>
+</html>

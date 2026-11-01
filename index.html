@@ -157,21 +157,22 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 #o-task .rockhint{margin:30px 0 16px}
 
 /* напоминание: колёса даты и времени */
-.picker-title{text-align:center;font-size:19px;font-weight:600;margin:14px 0 16px}
-/* переключатели в окне «Когда сделать»: повтор, «весь день / ко времени» */
-.seg{display:flex;gap:4px;background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:4px;margin-bottom:12px}
-.seg button{flex:1;border:none;background:none;color:var(--muted);font:inherit;font-size:13px;padding:9px 2px;border-radius:9px;cursor:pointer}
-.seg button.on{background:rgba(111,56,255,.3);color:#fff;font-weight:600}
+.picker-title{text-align:center;font-size:19px;font-weight:600;margin:24px 0 16px}
+#wd-min.idle{opacity:.3;pointer-events:none;transition:opacity .2s} /* час «—» (без времени): минуты не нужны */
 .wheels{display:flex;gap:8px}
-.wheels>div{flex:1}
+.wheels>div{flex:1;position:relative}
 .wheels>div:first-child{flex:1.4}
-.wlbl{text-align:center;color:var(--muted);font-size:11px;margin-bottom:6px}
+.wlbl{text-align:center;color:var(--muted);font-size:11px;line-height:16px;margin-bottom:6px}
+/* рамка выбора стоит на месте посередине колеса, значения прокручиваются под ней (16 + 6 подпись, 86 отступ) */
+.wheels>div::before{content:'';position:absolute;left:0;right:0;top:108px;height:43px;border-radius:10px;
+  background:rgba(111,56,255,.25);pointer-events:none}
+.wheel{position:relative}
 .wheel{height:215px;overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none}
 .wheel::-webkit-scrollbar{display:none}
 .wheel .pad{height:86px}
 .wheel .item{height:43px;display:flex;align-items:center;justify-content:center;
   scroll-snap-align:center;color:var(--muted);font-size:15px;cursor:pointer}
-.wheel .item.sel{color:#fff;background:rgba(111,56,255,.25);border-radius:10px;font-weight:600}
+.wheel .item.sel{color:#fff;font-weight:600}
 .btnrow{display:flex;gap:10px;margin-top:16px}
 .btnrow .btn{margin-top:0}
 
@@ -404,16 +405,14 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 
   <!-- Напоминание -->
   <div class="overlay" id="o-picker">
-    <div class="top"><h1>Когда сделать</h1><button class="close" onclick="cancelPicker()">✕</button></div>
+    <div class="top"><h1>Напоминание</h1><button class="close" onclick="cancelPicker()">✕</button></div>
     <div class="picker-title" id="p-summary"></div>
-    <div class="seg" id="p-rep"></div>
-    <div class="days-row" id="days-row"></div>
-    <div class="seg" id="p-time"></div>
     <div class="wheels">
-      <div id="wd-day"><div class="wlbl">Дата</div><div class="wheel" id="w-day"></div></div>
-      <div id="wd-hour"><div class="wlbl">Час</div><div class="wheel" id="w-hour"></div></div>
+      <div><div class="wlbl">Дата</div><div class="wheel" id="w-day"></div></div>
+      <div><div class="wlbl">Час</div><div class="wheel" id="w-hour"></div></div>
       <div id="wd-min"><div class="wlbl">Минуты</div><div class="wheel" id="w-min"></div></div>
     </div>
+    <div class="row" onclick="openSheet('rep-sheet')"><span>Повтор</span><span class="val"><span id="p-rep-label">Никогда</span> <span class="chev">›</span></span></div>
     <div class="btnrow">
       <button class="btn dark" onclick="pickNoDue()">Без срока</button>
       <button class="btn" onclick="pickOk()">OK</button>
@@ -434,6 +433,17 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
            oninput="noteChanged()" onkeydown="if(event.key==='Enter'){event.preventDefault();$('n-body').focus()}">
     <div class="ne-meta"><span id="ne-date"></span><span class="ne-sep">|</span><span id="ne-count"></span></div>
     <textarea class="ne-body" id="n-body" placeholder="Начните ввод" oninput="noteChanged()"></textarea>
+  </div>
+
+  <!-- Повтор -->
+  <div class="sheet-back" id="rep-sheet" onclick="if(event.target===this)closeSheet('rep-sheet')">
+    <div class="sheet">
+      <h2>Повтор</h2>
+      <div id="rep-opts"></div>
+      <div class="p-label" style="margin-top:14px">Свои дни</div>
+      <div class="days-row" id="days-row"></div>
+      <button class="btn" onclick="closeSheet('rep-sheet')">Готово</button>
+    </div>
   </div>
 
   <!-- Меню сделанного дела -->
@@ -481,7 +491,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.8.1';
+const APP_VERSION = '1.8.3';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -799,114 +809,87 @@ function wheelInit(el, items, selIdx, onSel, wrap) {
     Array.from({ length: reps * len }, (_, i) => `<div class="item" data-i="${i}">${items[i % len]}</div>`).join('') +
     '<div class="pad"></div>';
   const cells = el.querySelectorAll('.item');
-  const apply = (gi) => {
-    const li = gi % len;
-    cells.forEach((e) => e.classList.toggle('sel', e.dataset.i % len === li));
-    onSel(li);
-  };
+  const centered = () => Math.max(0, Math.min(cells.length - 1, Math.round(el.scrollTop / ITEM_H)));
+  // значение под рамкой выделено сразу, пока крутишь; выбор засчитывается, когда колесо остановилось
+  let lit = null;
+  const light = (gi) => { if (cells[gi] === lit) return; if (lit) lit.classList.remove('sel'); (lit = cells[gi]).classList.add('sel'); };
+  const apply = (gi) => { light(gi); onSel(gi % len); };
   el.onscroll = () => {
     if (wrap && (el.scrollTop < 2 * period || el.scrollTop > (reps - 2) * period)) el.scrollTop = mid * period + (el.scrollTop % period);
+    light(centered());
     clearTimeout(el._t);
-    el._t = setTimeout(() => apply(Math.max(0, Math.min(cells.length - 1, Math.round(el.scrollTop / ITEM_H)))), 90);
+    el._t = setTimeout(() => apply(centered()), 90);
   };
   cells.forEach((e) => { e.onclick = () => { el.scrollTop = e.dataset.i * ITEM_H; apply(+e.dataset.i); }; });
   const start = mid * len + selIdx;
   requestAnimationFrame(() => { el.scrollTop = start * ITEM_H; apply(start); });
 }
-/* Окно «Когда сделать». Сначала — как часто (один раз / каждый день / по дням недели / каждый месяц),
-   от этого зависит, что выбирать дальше: один раз и каждый месяц — дату колесом, по дням — дни недели
-   (дату не выбираем — первый раз будет в ближайший из них). Отдельно — «весь день» (без времени)
-   или «ко времени» (колёса часов и минут). Видно только то, что нужно для выбранного. */
+/* Окно срока — как в первой версии: колёса «Дата», «Час», «Минуты» и строка «Повтор». Без времени —
+   положение «—» в начале колеса часов: дело на весь день (минуты тогда приглушены). Подходит и к повтору:
+   «по Пн и Ср, без времени». */
 const DAYS_PAST = 180, DAYS_FUT = 365;
-let pDay = 0, pHour = 10, pMin = 0, pickBefore = null;
-const REP_MODES = [['never', 'Один раз'], ['daily', 'Каждый день'], ['days', 'По дням'], ['monthly', 'Каждый месяц']];
-const repMode = () => (pickRep.startsWith('days:') ? 'days' : pickRep);
+const NO_TIME = 0; // положение «—» на колесе часов; часы 0…23 — положения 1…24
+let pDay = 0, pHour = 10, pMin = 0, repBefore = 'never';
 const two = (n) => String(n).padStart(2, '0');
 function openPicker() {
-  pickBefore = { pickRep, pickAllDay }; // ✕ отменяет выбранное в этом окне
-  if (pickRep === 'weekly') pickRep = 'days:' + isoDay(new Date(pickDue || Date.now())); // старое «каждую неделю» — это один день недели
+  repBefore = pickRep; // ✕ отменяет повтор, выбранный в этом окне
   const init = new Date(pickDue || todayAt(10, 0) + DAY);
   const today = new Date().setHours(0, 0, 0, 0);
+  const days = Array.from({ length: DAYS_PAST + DAYS_FUT + 1 }, (_, k) => {
+    const i = k - DAYS_PAST, d = new Date(today); d.setDate(d.getDate() + i);
+    return i === 0 ? 'Сегодня' : shortDate(d);
+  });
   pDay = Math.max(-DAYS_PAST, Math.min(DAYS_FUT, Math.round((new Date(init).setHours(0, 0, 0, 0) - today) / DAY)));
-  pHour = pickDue && !pickAllDay ? init.getHours() : 10; pMin = pickDue && !pickAllDay ? init.getMinutes() : 0;
+  pHour = pickDue && pickAllDay ? null : init.getHours(); pMin = pickDue && pickAllDay ? 0 : init.getMinutes();
+  wheelInit($('w-day'), days, pDay + DAYS_PAST, (i) => { pDay = i - DAYS_PAST; pickerSummary(); });
+  wheelInit($('w-hour'), ['—', ...Array.from({ length: 24 }, (_, i) => two(i))], pHour === null ? NO_TIME : pHour + 1,
+    (i) => { pHour = i === NO_TIME ? null : i - 1; pickerSummary(); }, true);
+  wheelInit($('w-min'), Array.from({ length: 60 }, (_, i) => two(i)), pMin, (i) => { pMin = i; pickerSummary(); }, true);
+  renderRep(); pickerSummary();
   openOverlay('o-picker');
-  pickerLayout();
-}
-// показать нужное и (заново) раскрутить видимые колёса: у скрытого колеса браузер не помнит прокрутку
-function pickerLayout() {
-  const mode = repMode(), showDate = mode === 'never' || mode === 'monthly';
-  $('p-rep').innerHTML = REP_MODES.map(([v, l]) => `<button class="${v === mode ? 'on' : ''}" onclick="setRepMode('${v}')">${l}</button>`).join('');
-  const cur = repDays(pickRep);
-  $('days-row').style.display = mode === 'days' ? '' : 'none';
-  $('days-row').innerHTML = DAY_SHORT.map((n, i) => `<div class="day-chip ${cur.includes(i + 1) ? 'sel' : ''}" onclick="toggleDay(${i + 1})">${n}</div>`).join('');
-  $('p-time').innerHTML = `<button class="${pickAllDay ? 'on' : ''}" onclick="setAllDay(true)">Весь день</button>` +
-    `<button class="${pickAllDay ? '' : 'on'}" onclick="setAllDay(false)">Ко времени</button>`;
-  $('wd-day').style.display = showDate ? '' : 'none';
-  $('wd-hour').style.display = $('wd-min').style.display = pickAllDay ? 'none' : '';
-  if (showDate) {
-    const today = new Date().setHours(0, 0, 0, 0);
-    const days = Array.from({ length: DAYS_PAST + DAYS_FUT + 1 }, (_, k) => {
-      const i = k - DAYS_PAST, d = new Date(today); d.setDate(d.getDate() + i);
-      return i === 0 ? 'Сегодня' : shortDate(d);
-    });
-    wheelInit($('w-day'), days, pDay + DAYS_PAST, (i) => { pDay = i - DAYS_PAST; pickerSummary(); });
-  }
-  if (!pickAllDay) {
-    wheelInit($('w-hour'), Array.from({ length: 24 }, (_, i) => two(i)), pHour, (i) => { pHour = i; pickerSummary(); }, true);
-    wheelInit($('w-min'), Array.from({ length: 60 }, (_, i) => two(i)), pMin, (i) => { pMin = i; pickerSummary(); }, true);
-  }
-  pickerSummary();
-}
-function setRepMode(v) {
-  if (v === 'days') pickRep = 'days:' + isoDay(pickerDate()); // начнём с дня недели выбранной даты
-  else pickRep = v;
-  pickerLayout();
-}
-function setAllDay(v) { pickAllDay = v; pickerLayout(); }
-function toggleDay(d) {
-  const cur = repDays(pickRep);
-  const next = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => a - b);
-  if (!next.length) return; // хотя бы один день
-  pickRep = 'days:' + next.join(',');
-  pickerLayout();
 }
 function pickerDate() {
   const d = new Date(); d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + pDay); d.setHours(pHour, pMin);
+  d.setDate(d.getDate() + pDay);
+  if (pHour !== null) d.setHours(pHour, pMin);
   return d;
 }
 function pickerSummary() {
-  const mode = repMode(), time = pickAllDay ? 'весь день' : two(pHour) + ':' + two(pMin), d = pickerDate();
-  $('p-summary').textContent =
-    mode === 'never' ? shortDate(d) + ', ' + time :
-    mode === 'daily' ? 'Каждый день, ' + time :
-    mode === 'days' ? repLabel(pickRep) + ', ' + time :
-    'Каждый месяц, ' + d.getDate() + '-го, ' + time;
+  const d = pickerDate();
+  $('wd-min').classList.toggle('idle', pHour === null);
+  $('p-summary').textContent = shortDate(d) + (pHour === null ? ', без времени' : ' ' + timeStr(d));
 }
-// первый срок: один раз и каждый месяц — выбранная дата; каждый день и по дням — ближайший подходящий
-// день, начиная с сегодня. В прошлое не ставим: «весь день» — прошлым считается только прошедший день
 function pickOk() {
-  const now = new Date(), dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
-  const at = (base) => { const d = new Date(base); if (pickAllDay) d.setHours(0, 0, 0, 0); else d.setHours(pHour, pMin, 0, 0); return d; };
-  const passed = (d) => (pickAllDay ? d < dayStart : d <= now);
-  const mode = repMode();
-  let d;
-  if (mode === 'never' || mode === 'monthly') {
-    d = at(pickerDate());
-    if (passed(d)) {
-      d = pickAllDay ? at(now) : new Date(Date.now() + 3600e3); d.setSeconds(0, 0);
-      toast(pickAllDay ? 'Этот день уже прошёл — поставил на сегодня.' : 'Это время уже прошло — выбрал ближайшее.');
-    }
-  } else {
-    const days = repDays(pickRep);
-    d = at(now);
-    while (passed(d) || (days.length && !days.includes(isoDay(d)))) d.setDate(d.getDate() + 1);
+  let d = pickerDate();
+  const allDay = pHour === null;
+  if (allDay ? d < new Date().setHours(0, 0, 0, 0) : d.getTime() <= Date.now()) { // в прошлое не ставим
+    if (allDay) d = new Date(new Date().setHours(0, 0, 0, 0));
+    else { d = new Date(Date.now() + 3600e3); d.setSeconds(0, 0); }
+    toast(allDay ? 'Этот день уже прошёл — поставил на сегодня.' : 'Это время уже прошло — выбрал ближайшее.');
   }
-  pickDue = d.getTime();
+  const days = repDays(pickRep); // первый раз — в ближайший из выбранных дней
+  while (days.length && !days.includes(isoDay(d))) d.setDate(d.getDate() + 1);
+  pickDue = d.getTime(); pickAllDay = allDay;
   updateDueLabel(); closeOverlay('o-picker');
 }
-function cancelPicker() { pickRep = pickBefore.pickRep; pickAllDay = pickBefore.pickAllDay; closeOverlay('o-picker'); }
+function cancelPicker() { pickRep = repBefore; closeOverlay('o-picker'); }
 function pickNoDue() { pickDue = null; pickRep = 'never'; pickAllDay = false; updateDueLabel(); closeOverlay('o-picker'); }
+function renderRep() {
+  $('p-rep-label').textContent = repLabel(pickRep);
+  const opts = { never: 'Никогда', daily: 'Каждый день', weekly: 'Каждую неделю', monthly: 'Каждый месяц' };
+  $('rep-opts').innerHTML = Object.entries(opts).map(([v, l]) =>
+    `<div class="opt ${v === pickRep ? 'sel' : ''}" onclick="setRep('${v}')">${l}</div>`).join('');
+  const cur = repDays(pickRep);
+  $('days-row').innerHTML = DAY_SHORT.map((n, i) =>
+    `<div class="day-chip ${cur.includes(i + 1) ? 'sel' : ''}" onclick="toggleDay(${i + 1})">${n}</div>`).join('');
+}
+function setRep(v) { pickRep = v; renderRep(); closeSheet('rep-sheet'); }
+function toggleDay(d) {
+  const cur = repDays(pickRep);
+  const next = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => a - b);
+  pickRep = next.length ? 'days:' + next.join(',') : 'never';
+  renderRep();
+}
 
 /* ===================== камушки ===================== */
 // примерная высота карточки, чтобы раскладывать по колонкам: заголовок до 2 строк, текст до 4
