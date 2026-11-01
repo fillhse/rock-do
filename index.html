@@ -455,7 +455,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.5.8';
+const APP_VERSION = '1.5.9';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -663,21 +663,39 @@ function pullEnd() {
   const p = pull; pull = null;
   if (p.on) setHero(p.ready && !drag, true, p.v || 0);
 }
-/* Трекпад и колесо (Mac): в самом верху — отдельная долгая прокрутка вверх. Докрутили до «Моих дел»
-   снизу — трекпад ещё долго шлёт события по инерции; они подсказку не открывают. Считаем только жест,
-   начатый, когда список уже постоял в самом верху (TOP_REST) и после паузы между событиями (инерция
-   идёт сплошным потоком). */
-const WHEEL_OPEN = 900, WHEEL_PAUSE = 350, TOP_REST = 700;
-let wheelPull = 0, wheelArmed = false, wheelLast = 0, scrolledAt = 0;
+/* Трекпад и колесо (Mac): в самом верху — отдельная долгая прокрутка вверх; подсказка так же туго
+   выезжает следом и, если не докрутить, уходит обратно — как пальцем на телефоне. Докрутили до «Моих дел»
+   снизу — трекпад ещё долго шлёт события по инерции; они подсказку не трогают. Считаем только жест,
+   начатый, когда список уже постоял в самом верху (TOP_REST), после паузы между событиями (инерция
+   идёт сплошным потоком). Жест кончился — WHEEL_END без событий. */
+const WHEEL_OPEN = 900, WHEEL_PAUSE = 350, TOP_REST = 700, WHEEL_END = 200;
+let wheelPull = 0, wheelArmed = false, wheelLast = 0, scrolledAt = 0, wheelTimer = 0;
+function wheelDone() {
+  clearTimeout(wheelTimer);
+  if (wheelPull > 0) setHero(wheelPull >= WHEEL_OPEN, true); // докрутили — открылась, нет — ушла обратно
+  wheelPull = 0; wheelArmed = false;
+}
 function pullWheel(e) {
   const now = performance.now(), gap = now - wheelLast;
   wheelLast = now;
-  if (heroWrap().classList.contains('open') || $('s-rock').scrollTop > 0 || e.deltaY >= 0) { wheelPull = 0; wheelArmed = false; return; }
-  if (gap > WHEEL_PAUSE && now - scrolledAt > TOP_REST) { wheelArmed = true; wheelPull = 0; } // новый жест в самом верху
+  if (heroWrap().classList.contains('open') || $('s-rock').scrollTop > 0 || e.deltaY >= 0) { if (wheelPull > 0) wheelDone(); wheelArmed = false; return; }
+  if (!wheelArmed && gap > WHEEL_PAUSE && now - scrolledAt > TOP_REST) { wheelArmed = true; wheelPull = 0; } // новый жест в самом верху
   if (!wheelArmed) return; // докатились сюда прокруткой или по инерции
+  if (!wheelPull) cancelAnimationFrame(heroAnim);
   wheelPull -= e.deltaY;
-  if (wheelPull > WHEEL_OPEN) { wheelPull = 0; wheelArmed = false; setHero(true, true); }
+  const full = heroFull();
+  heroShow(heroWrap(), rubber(Math.min(wheelPull, WHEEL_OPEN * 1.5) * (PULL_OPEN - SLOP) / WHEEL_OPEN, full), full);
+  clearTimeout(wheelTimer); wheelTimer = setTimeout(wheelDone, WHEEL_END);
 }
+// Колесо листает экран, где бы ни стоял курсор: над полями по бокам от колонки приложения (широкое окно
+// Telegram на Mac) и над нижней панелью — тоже, и подсказка ведёт себя одинаково.
+document.addEventListener('wheel', (e) => {
+  if (e.target.closest('.screen') || document.querySelector('.overlay.on, .sheet-back.on')) return; // там листает сам браузер
+  const sc = document.querySelector('.screen.on');
+  if (!sc) return;
+  sc.scrollTop += e.deltaY;
+  if (sc.id === 's-rock') pullWheel(e);
+}, { passive: true });
 function plusAction() { current === 'notes' ? openNote(null) : openTaskEditor(null); }
 const openOverlay = (id) => $(id).classList.add('on');
 const closeOverlay = (id) => $(id).classList.remove('on');

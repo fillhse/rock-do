@@ -157,6 +157,16 @@
   for (let i = 0; i < 16; i++) { wheel(-80); await sleep(16); }
   await sleep(700);
   check('Mac: отдельный жест вверх, начатый в самом верху, — подсказка открылась', heroH() > 100);
+  go('notes'); go('rock'); sc.scrollTop = 0; await sleep(900);
+  for (let i = 0; i < 6; i++) { wheel(-80); await sleep(16); }
+  await sleep(60); const partH = heroH();
+  await sleep(900);
+  check('Mac: недокрутили — подсказка туго показалась и ушла обратно', partH > 5 && partH < 80 && heroH() === 0);
+  document.querySelectorAll('.overlay.on').forEach((o) => o.classList.remove('on')); // синтетический click после броска в корзину попадает в «+»
+  sc.scrollTop = 0; await sleep(50);
+  document.querySelector('.nav').dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 200 }));
+  await sleep(50);
+  check('Mac: колесо над нижней панелью тоже листает список', sc.scrollTop > 100);
   go('notes'); go('rock'); sc.scrollTop = 0;
   check('после жестов не осталось «призраков»', !drag && !document.querySelector('body > .card, body > .note-card, body > .done-wrap'));
 
