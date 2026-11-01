@@ -1,6 +1,6 @@
 /* rock do — service worker: офлайн-работа и быстрые обновления.
    При изменении файлов приложения увеличивай VERSION — старый кэш удалится. */
-const VERSION = 'v9'; // то же значение — в BUILD в index.html
+const VERSION = 'v10'; // то же значение — в BUILD в index.html
 const CACHE = 'rockdo-' + VERSION;
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
@@ -11,7 +11,10 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' — строго с сервера: иначе из HTTP-кэша браузера (у GitHub 10 минут)
+  // в кэш новой версии попадают файлы предыдущей
+  const fresh = ASSETS.map((u) => new Request(u, { cache: 'reload' }));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(fresh)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
