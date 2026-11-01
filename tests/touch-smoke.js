@@ -136,12 +136,14 @@
   const back = near(sc.scrollTop, rockOff());
   sc.scrollTop = rockOff() * 0.2; await sleep(900);
   check('защёлка: подсказка открыта на 40% — уехала, на 80% — открылась целиком', back && near(sc.scrollTop, 0));
-  // стена: резко вверх из глубины списка — останавливается на «Моих делах»
+  // пружинка: резко вверх из глубины списка — прокрутку не перебиваем, после остановки плавно возвращаемся к «Моим делам»
   sc.scrollTop = rockOff() + 300; await sleep(400);
-  sc.scrollTop = 0; await sleep(400);
-  const wall = near(sc.scrollTop, rockOff());
-  sc.scrollTop = rockOff() * 0.1; await sleep(900); // отдельное движение вверх от «Моих дел» — подсказка открывается
-  check('стена: из списка вверх — стоп на «Моих делах»; отдельным движением — подсказка открывается', wall && near(sc.scrollTop, 0));
+  const samples = [];
+  sc.scrollTop = 0; for (let i = 0; i < 3; i++) { await sleep(40); samples.push(sc.scrollTop); } // сразу после — не дёргаем
+  await sleep(1000);
+  const spring = samples.every((v) => v === 0) && near(sc.scrollTop, rockOff());
+  sc.scrollTop = rockOff() * 0.1; await sleep(1000); // отдельное движение вверх от «Моих дел» — подсказка открывается
+  check('пружинка: из списка вверх — прокрутку не перебиваем, потом плавно к «Моим делам»; отдельным движением — подсказка открывается', spring && near(sc.scrollTop, 0));
   rockToTop(); await sleep(300);
   // мышь и трекпад (ноутбук): нажал и сразу повёл — перенос без удержания; просто клик — открывает дело
   const mcards = () => document.querySelectorAll('#task-list .card.task');
