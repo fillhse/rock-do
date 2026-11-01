@@ -99,7 +99,8 @@
   const first = titles()[0], b0 = cards()[0].querySelector('b'), p0 = at(b0, 20);
   await hold(b0, p0, [p0[0], p0[1] + 3 * step]);
   check('удержание и перенос дела на 3 позиции вниз', titles().indexOf(first) === 3);
-  const sc = document.getElementById('s-rock');
+  const sc = document.getElementById('rock-list'); // дела листаются в своей прокрутке
+  const outer = document.getElementById('s-rock'); // общая прокрутка: запас-барьер над делами
   const hotTop = document.getElementById('trash-btn').getBoundingClientRect().top - 46 - 12; // корзина пока спрятана на 46px ниже
   const second = titles()[1], b1 = cards()[1].querySelector('b'), p1 = at(b1, 20);
   await hold(b1, p1, [p1[0], hotTop - 30], 1500);
@@ -115,67 +116,23 @@
   await sleep(HOLD_MS + 60);
   check('быстрый свайп — прокрутка, карточка не поднимается', !drag);
   c3.dispatchEvent(touchEv('touchend', c3, sx, sy - 40));
-  // подсказка с Рокки: спрятана; лёгкое потягивание вниз её не открывает, тугое — открывает
-  const heroH = () => document.getElementById('hero-wrap').offsetHeight;
-  async function pullDown(dist) {
-    sc.scrollTop = 0; await sleep(30);
-    const el = cards()[0].querySelector('b'), [x, y] = at(el, 20);
-    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: x, clientY: y, button: 0 }));
-    el.dispatchEvent(touchEv('touchstart', el, x, y));
-    for (let i = 1; i <= 12; i++) { el.dispatchEvent(touchEv('touchmove', el, x, y + dist * i / 12)); await sleep(16); }
-    el.dispatchEvent(touchEv('touchend', el, x, y + dist));
-    await sleep(400);
-  }
-  go('notes'); go('rock'); sc.scrollTop = 0; await sleep(50);
-  check('подсказка спрятана, камень начинается с «Моих дел»', heroH() === 0 && cards()[0].getBoundingClientRect().top < 120);
-  await pullDown(70);
-  check('лёгкое потягивание вниз — подсказка не открылась', heroH() === 0 && !drag);
-  await pullDown(250);
-  check('потянули на 250 px — ещё мало, подсказка не открылась', heroH() === 0 && !drag);
-  await pullDown(380);
-  check('тугое потягивание вниз (380 px) — подсказка открылась', heroH() > 100 && !drag);
-  go('notes'); go('rock'); await sleep(50);
-  check('ушли с камня и вернулись — подсказка снова спрятана', heroH() === 0);
-  // палец коснулся в самом верху и дрогнул вниз, потом повёл вверх — браузеру прокрутку не запрещаем
-  sc.scrollTop = 0; await sleep(30);
-  { const el = cards()[0].querySelector('b'), [x, y] = at(el, 20);
-    el.dispatchEvent(touchEv('touchstart', el, x, y));
-    const free1 = el.dispatchEvent(touchEv('touchmove', el, x, y + 3)), free2 = el.dispatchEvent(touchEv('touchmove', el, x, y - 30));
-    el.dispatchEvent(touchEv('touchend', el, x, y - 30)); await sleep(300);
-    check('в самом верху палец дрогнул вниз, потом повёл вверх — прокрутка не запрещена', free1 && free2 && heroH() === 0); }
-  // ноутбук: мышью или трекпадом — зажал и потянул вниз, так же туго, как пальцем; клик по делу после этого не срабатывает
-  async function mousePull(dist) {
-    document.querySelectorAll('.overlay.on').forEach((o) => o.classList.remove('on')); // синтетический click после броска в корзину попадает в «+»
-    go('notes'); go('rock'); sc.scrollTop = 0; await sleep(50);
-    const el = cards()[0].querySelector('b'), [x, y] = at(el, 20);
-    const me = (type, yy, t = el) => t.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: yy, button: 0, buttons: type === 'mouseup' ? 0 : 1 }));
-    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', clientX: x, clientY: y, button: 0 }));
-    me('mousedown', y);
-    for (let i = 1; i <= 12; i++) { const yy = y + dist * i / 12; me('mousemove', yy, document); document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', clientX: x, clientY: yy })); await sleep(16); }
-    me('mouseup', y + dist, document); document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'mouse', clientX: x, clientY: y + dist }));
-    el.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: x, clientY: y + dist }));
-    await sleep(700);
-  }
-  await mousePull(200);
-  check('ноутбук: потянул мышью на 200 px — мало, подсказка не открылась', heroH() === 0 && !document.getElementById('o-task').classList.contains('on'));
-  await mousePull(380);
-  check('ноутбук: потянул мышью на 380 px — подсказка открылась, редактор дела не открылся', heroH() > 100 && !document.getElementById('o-task').classList.contains('on'));
-  go('notes'); go('rock'); sc.scrollTop = 0;
-  // колесо и трекпад в самом верху: упругий барьер — слабо толкнули: подсказка выглянула и ушла; продавили — открылась
-  const wheel = (dy) => sc.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: dy }));
-  const swipe = async (steps) => { for (const dy of steps) { wheel(dy); await sleep(16); } };
-  go('notes'); go('rock'); sc.scrollTop = 0; await sleep(200);
-  await swipe(Array(6).fill(-40)); const peek = heroH(); await sleep(900);
-  check('колесо/трекпад: слабо толкнули в самом верху — подсказка выглянула и ушла обратно', peek > 3 && peek < 60 && heroH() === 0);
-  await swipe(Array(6).fill(-40)); await swipe(Array(10).fill(40)); const back = heroH(); await sleep(400);
-  check('колесо/трекпад: выглянула и повели обратно — подсказка ушла, список снова листается', back === 0 && !wheelPull);
-  await swipe(Array(30).fill(-40)); await sleep(900);
-  check('колесо/трекпад: продавили барьер — подсказка открылась', heroH() > 100);
-  go('notes'); go('rock'); sc.scrollTop = 0; await sleep(200);
-  document.querySelector('#s-rock .count').click(); await sleep(900);
-  const openedByClick = heroH() > 100;
-  document.querySelector('#s-rock .count').click(); await sleep(900);
-  check('нажатие на «Мои дела» открывает подсказку, повторное — закрывает', openedByClick && heroH() === 0);
+  // подсказка с Рокки: за барьером из прокрутки — камень начинается с «Моих дел», подсказки не видно
+  const heroVisible = () => document.getElementById('rock-hero').getBoundingClientRect().bottom > outer.getBoundingClientRect().top + 30;
+  go('notes'); go('rock'); await sleep(100);
+  check('камень начинается с «Моих дел», подсказка не видна', Math.abs(outer.scrollTop - barB) < 2 && !heroVisible());
+  // перенос дела вверх к краю: листается список дел, а не барьер — подсказка не выезжает
+  sc.scrollTop = 300; await sleep(50);
+  const upB = cards()[4].querySelector('b'), pu = at(upB, 20);
+  await hold(upB, pu, [pu[0], outer.getBoundingClientRect().top + 20], 1200);
+  check('перенос дела к верхнему краю — листаются дела, подсказка не выезжает', sc.scrollTop < 300 && Math.abs(outer.scrollTop - barB) < 2 && !heroVisible());
+  // нажатие на «Мои дела» — открыть и спрятать
+  sc.scrollTop = 0; document.querySelector('#rock-list .count').click(); await sleep(1200);
+  const openedByClick = outer.scrollTop < 2 && heroVisible();
+  document.querySelector('#rock-list .count').click(); await sleep(1200);
+  check('нажатие на «Мои дела» открывает подсказку, повторное — прячет', openedByClick && Math.abs(outer.scrollTop - barB) < 2 && !heroVisible());
+  // ушли с камня с открытой подсказкой и вернулись — снова с «Моих дел»
+  outer.scrollTop = 0; await sleep(300); go('notes'); go('rock'); await sleep(100);
+  check('ушли с камня и вернулись — снова с «Моих дел»', Math.abs(outer.scrollTop - barB) < 2);
   // облако прислало правку, пока палец держит карточку (ждём удержания) — список не перерисовывается под пальцем
   { const card0 = cards()[0], el = card0.querySelector('b'), [x, y] = at(el, 20);
     el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: x, clientY: y, button: 0 }));
@@ -184,7 +141,6 @@
     el.dispatchEvent(touchEv('touchend', el, x, y)); await sleep(50);
     check('пока палец держит карточку, облако список не трогает (busy)', held && !busy() && card0.isConnected); }
   document.querySelectorAll('.overlay.on').forEach((o) => o.classList.remove('on')); // синтетический click после броска в корзину попадает в «+»
-  sc.scrollTop = 0; await sleep(50);
   go('notes'); go('rock'); sc.scrollTop = 0;
   check('после жестов не осталось «призраков»', !drag && !document.querySelector('body > .card, body > .note-card, body > .done-wrap'));
 
