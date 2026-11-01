@@ -48,8 +48,14 @@ h1{font-size:21px;margin-bottom:4px}
 .hero .phrase{font-size:18px;font-weight:700;line-height:1.3}
 .hero .hint{color:var(--accent2);font-size:12px;line-height:1.4;margin-top:8px}
 .count{margin-bottom:10px}
-/* списки камня не короче экрана — чтобы подсказку над ними всегда можно было увести вверх */
-.rock-main{min-height:100%}
+/* Камень: подсказка — во внешней прокрутке, дела — в своей, внутренней. Дойдя до верха, список дел
+   останавливается, а подсказка открывается только новым движением, начатым уже наверху: так браузеры сами
+   передают прокрутку из вложенной области наружу. Своего кода для этого нет — прокрутку мы не трогаем. */
+#s-rock{padding-bottom:0}
+.rock-main{position:relative;height:100%;overflow-y:auto;padding-bottom:calc(116px + var(--bot));scrollbar-width:none}
+.rock-main::-webkit-scrollbar{display:none}
+/* пока подсказка видна, список не прокручивается — движение по нему сначала уводит подсказку */
+#s-rock.hint-open .rock-main{overflow-y:hidden}
 .count b{color:var(--text)}
 
 /* карточки, которые можно взять пальцем */
@@ -575,7 +581,9 @@ const plural = (n, f) => f[n % 10 === 1 && n % 100 !== 11 ? 0 : n % 10 >= 2 && n
 let current = 'rock';
 // камень открывается сразу с «Моих дел»; подсказка с Рокки — выше, до неё можно долистать
 const rockTopOffset = () => $('rock-main').offsetTop - parseFloat(getComputedStyle($('s-rock')).paddingTop);
-function rockToTop() { $('s-rock').scrollTop = rockTopOffset(); }
+function rockToTop() { $('s-rock').scrollTop = rockTopOffset(); $('rock-main').scrollTop = 0; markHint(); }
+// только отмечаем, видна ли подсказка (для стиля выше); положение прокрутки не трогаем
+function markHint() { $('s-rock').classList.toggle('hint-open', $('s-rock').scrollTop < rockTopOffset() - 1); }
 function go(s) {
   const wasRock = current === 'rock' && $('s-rock').classList.contains('on');
   current = s;
@@ -1052,24 +1060,24 @@ function dragMove(x, y) {
 // у верхнего/нижнего края список сам прокручивается; нижняя зона — над корзиной, не заходя в неё
 function autoScroll() {
   if (!drag) return;
-  const sc = document.querySelector('.screen.on');
+  const outer = document.querySelector('.screen.on');
+  const sc = outer.id === 's-rock' ? $('rock-main') : outer; // на камне дела прокручиваются в своей области
   if (drag.type !== 'done') {
-    const top = sc.getBoundingClientRect().top + (parseFloat(getComputedStyle(sc).paddingTop) || 0) + 50;
-    const hotTop = $('trash-btn').getBoundingClientRect().top - 12, bottom = hotTop - 70;
-    const y = drag.py - drag.dy + drag.h / 2;
-    const v = y < top ? -Math.min(14, (top - y) / 4) : y > bottom && y < hotTop ? Math.min(14, (y - bottom) / 4) : 0;
-    const before = sc.scrollTop;
-    let min = 0;
-    if (sc.id === 's-rock') { // на камне подсказка при переносе не нужна: если видна — плавно уезжает,
-      min = rockTopOffset();   // а вверх список прокручивается не дальше «Моих дел»
-      if (before < min - 0.5) {
-        sc.scrollTop = Math.min(min, before + Math.max(4, (min - before) * 0.25));
+    if (outer.id === 's-rock') { // подсказка при переносе не нужна: если видна — плавно уезжает
+      const off = rockTopOffset();
+      if (outer.scrollTop < off - 0.5) {
+        outer.scrollTop = Math.min(off, outer.scrollTop + Math.max(4, (off - outer.scrollTop) * 0.25));
         dragMove(drag.px, drag.py);
         requestAnimationFrame(autoScroll);
         return;
       }
     }
-    if (v) sc.scrollTop = Math.max(min, before + v);
+    const top = sc.getBoundingClientRect().top + (parseFloat(getComputedStyle(sc).paddingTop) || 0) + 50;
+    const hotTop = $('trash-btn').getBoundingClientRect().top - 12, bottom = hotTop - 70;
+    const y = drag.py - drag.dy + drag.h / 2;
+    const v = y < top ? -Math.min(14, (top - y) / 4) : y > bottom && y < hotTop ? Math.min(14, (y - bottom) / 4) : 0;
+    const before = sc.scrollTop;
+    if (v) sc.scrollTop = Math.max(0, before + v);
     if (sc.scrollTop !== before) dragMove(drag.px, drag.py);
   }
   requestAnimationFrame(autoScroll);
@@ -1482,6 +1490,7 @@ function renderAll() { renderTasks(); renderDone(); renderNotes(); renderStats()
 renderAll();
 renderRiver();
 rockToTop();
+$('s-rock').addEventListener('scroll', markHint, { passive: true });
 const tz = -new Date().getTimezoneOffset() / 60;
 $('tz-val').textContent = `(UTC${tz >= 0 ? '+' : ''}${tz})`;
 $('ver-val').textContent = 'версия ' + APP_VERSION;
