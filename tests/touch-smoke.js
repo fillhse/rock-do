@@ -100,12 +100,12 @@
   const first = titles()[0], b0 = cards()[0].querySelector('b'), p0 = at(b0, 20);
   await hold(b0, p0, [p0[0], p0[1] + 3 * step]);
   check('удержание и перенос дела на 3 позиции вниз', titles().indexOf(first) === 3);
-  const sc = document.getElementById('s-rock'), list = document.getElementById('rock-main'); // подсказка снаружи, дела — внутри
+  const sc = document.getElementById('s-rock');
   const hotTop = document.getElementById('trash-btn').getBoundingClientRect().top - 46 - 12; // корзина пока спрятана на 46px ниже
   const second = titles()[1], b1 = cards()[1].querySelector('b'), p1 = at(b1, 20);
   await hold(b1, p1, [p1[0], hotTop - 30], 1500);
-  check('автопрокрутка у нижнего края, корзина не срабатывает', list.scrollTop > 0 && titles().indexOf(second) === titles().length - 1);
-  list.scrollTop = 0; await sleep(50);
+  check('автопрокрутка у нижнего края, корзина не срабатывает', sc.scrollTop > 0 && titles().indexOf(second) === titles().length - 1);
+  sc.scrollTop = 0; await sleep(50);
   const third = titles()[0], b2 = cards()[0].querySelector('b'), tb = document.getElementById('trash-btn').getBoundingClientRect();
   await hold(b2, at(b2, 20), [tb.left + tb.width / 2, tb.top + tb.height / 2 - 46]);
   check('бросок в корзину + «Отменить»', !titles().includes(third) && document.getElementById('snack').classList.contains('on'));
@@ -118,22 +118,13 @@
   c3.dispatchEvent(touchEv('touchend', c3, sx, sy - 40));
   // перенос вверх: список прокручивается не выше «Моих дел» — подсказка с Рокки не выезжает
   const rockOff = () => document.getElementById('rock-main').offsetTop - parseFloat(getComputedStyle(sc).paddingTop);
-  const near = (a, b) => Math.abs(a - b) < 1.5;
-  rockToTop(); await sleep(50);
-  check('раскладка: камень открыт на «Моих делах», подсказка выше — во внешней прокрутке, дела — во внутренней',
-    near(sc.scrollTop, rockOff()) && near(sc.scrollHeight - sc.clientHeight, rockOff()) && list.scrollHeight > list.clientHeight);
-  sc.scrollTop = 0; await sleep(100);
-  const hintOpenListLocked = getComputedStyle(list).overflowY === 'hidden';
-  rockToTop(); await sleep(100);
-  check('подсказка видна — список не прокручивается (движение уводит подсказку); скрыта — прокручивается',
-    hintOpenListLocked && getComputedStyle(list).overflowY === 'auto');
-  list.scrollTop = 300; await sleep(50);
+  sc.scrollTop = rockOff() + 300; await sleep(50);
   const up0 = mcardsUp()[2].querySelector('b'), pu = at(up0, 20);
   await hold(up0, pu, [pu[0], 30], 1500);
   check('перенос вверх: прокрутка остановилась на «Моих делах», подсказка не выехала',
-    near(sc.scrollTop, rockOff()) && list.scrollTop < 300 && document.querySelector('.hero').getBoundingClientRect().bottom <= sc.getBoundingClientRect().top + 20);
+    sc.scrollTop === rockOff() && document.querySelector('.hero').getBoundingClientRect().bottom <= sc.getBoundingClientRect().top + 20);
   // подсказка приоткрыта, а дело переносим — подсказка плавно уезжает, дело встаёт наверх
-  list.scrollTop = 0;
+  const near = (a, b) => Math.abs(a - b) < 1.5;
   sc.scrollTop = rockOff() / 2;
   const half0 = titles()[2], hb = mcardsUp()[2].querySelector('b'), ph = at(hb, 20);
   const listTop = mcardsUp()[0].getBoundingClientRect().top;
