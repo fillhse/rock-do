@@ -318,6 +318,9 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
       <div class="setting" onclick="toast('Часовой пояс определяется автоматически.')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s-6.5-5.6-6.5-10.5a6.5 6.5 0 1 1 13 0C18.5 15.4 12 21 12 21Z"/><circle cx="12" cy="10.5" r="2.2"/></svg>
         <span class="name">Часовой пояс</span><span class="val" id="tz-val"></span><span class="chev">›</span></div>
+      <div class="setting" onclick="syncInfo()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M7 18.5h10.5a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.4 9.2 4.7 4.7 0 0 0 7 18.5Z"/></svg>
+        <span class="name">Хранение</span><span class="val" id="sync-val"></span><span class="chev">›</span></div>
     </div>
     <div class="card mnt-card">
       <div class="mnt-title">Гора сделанного</div>
@@ -443,7 +446,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.3.3';
+const APP_VERSION = '1.4.0';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -467,23 +470,48 @@ function seedDb() {
       { id: 1, title: 'Идея для проекта', body: 'Сервис, который помогает людям сохранять фокус на важном...', at: now - 3600e3, pos: 1 },
       { id: 3, title: 'Как устроен rock do', body: GUIDE, at: now - 2 * DAY, pos: 2 },
     ],
-    done: [], river: null, nextId: 100, guideNote: true, seedOrder: true,
+    done: [], river: null, nextId: 100, guideNote: true, seedOrder: true, deleted: {},
+    fresh: true, // стартовые примеры: пока пользователь ничего не менял, в облако их не отправляем
   };
 }
 function loadDb() {
   let d = null;
   try { d = JSON.parse(localStorage.getItem(STORE)); } catch (e) { /* нет доступа к хранилищу — работаем в памяти */ }
   if (!d) return seedDb();
-  d.tasks = d.tasks || []; d.notes = d.notes || []; d.done = d.done || [];
+  d.tasks = d.tasks || []; d.notes = d.notes || []; d.done = d.done || []; d.deleted = d.deleted || {};
   d.tasks.forEach((t) => { if (t.pos === undefined) t.pos = -t.id; });
   d.notes.forEach((n) => { if (n.pos === undefined) n.pos = -n.at; });
   return d;
 }
 const db = loadDb();
-function save() { try { localStorage.setItem(STORE, JSON.stringify(db)); } catch (e) { /* то же */ } }
-const newId = () => db.nextId++;
+// id не повторяются между устройствами: не меньше текущего времени в мс
+const newId = () => { const id = Math.max(db.nextId, Date.now()); db.nextId = id + 1; return id; };
 const topPos = (arr) => (arr.length ? Math.min(...arr.map((x) => x.pos)) - 1 : 0); // новые — сверху
 const byPos = (arr) => [...arr].sort((a, b) => a.pos - b.pos);
+
+/* Учёт изменений для облака: у каждого дела, камушка и записи истории — время последней правки (upd),
+   у удалённых — отметка в deleted. Считается само при сохранении сравнением с прошлым сохранением,
+   поэтому любая правка в любом месте кода учитывается без ручных пометок. */
+const KINDS = { tasks: 't', notes: 'n', done: 'd' };
+const bare = (x) => JSON.stringify(x, (k, v) => (k === 'upd' ? undefined : v));
+let snap = new Map(); // ключ элемента → его содержимое на момент прошлого сохранения
+function takeSnap() {
+  snap = new Map([['river', bare(db.river)]]);
+  for (const [kind, p] of Object.entries(KINDS)) for (const it of db[kind]) snap.set(p + ':' + it.id, bare(it));
+}
+function stampChanges() {
+  const now = Date.now(), seen = new Set(['river']);
+  for (const [kind, p] of Object.entries(KINDS)) for (const it of db[kind]) {
+    const k = p + ':' + it.id, j = bare(it);
+    seen.add(k);
+    if (snap.get(k) !== j) { it.upd = now; snap.set(k, j); delete db.deleted[k]; } // новое, изменённое или возвращённое
+  }
+  for (const k of [...snap.keys()]) if (!seen.has(k)) { db.deleted[k] = now; snap.delete(k); }
+  if (db.river && snap.get('river') !== bare(db.river)) { db.river.upd = now; snap.set('river', bare(db.river)); }
+}
+function saveLocal() { try { localStorage.setItem(STORE, JSON.stringify(db)); } catch (e) { /* нет доступа к хранилищу */ } }
+function save() { stampChanges(); db.fresh = false; saveLocal(); cloudLater(); }
+takeSnap();
 
 /* ===================== повторы ===================== */
 // never | daily | weekly | monthly | days:1,3,5 (дни недели, 1 = Пн)
@@ -1081,6 +1109,115 @@ function endDrag(cancelled) {
   }
 }
 
+/* ===================== облако Telegram ===================== */
+/* Копия данных в CloudStorage Telegram: она привязана к аккаунту и боту, а не к телефону — переживёт
+   смену телефона и видна в Telegram на компьютере. Работа идёт с локальной копией (мгновенно и без сети),
+   с облаком приложение сверяется в фоне: при открытии, после правок и при возвращении в приложение.
+   Лимиты Telegram — до 1024 ключей и до 4096 символов в значении, поэтому данные режутся на куски:
+   t0,t1… — дела, n… — камушки, d… — сделанные, m… — прочее; idx — опись, сколько кусков у каждой части. */
+const CHUNK = 4000, MAX_KEYS = 1000, TOMB_DAYS = 180;
+let cloud = null;      // Telegram.WebApp.CloudStorage, когда приложение открыто в Telegram
+let cloudKeys = {};    // что сейчас лежит в облаке: ключ → значение (пишем только изменившееся)
+let cloudTimer, cloudAt = 0, syncing = null, syncAgain = false, cloudBroken = 0;
+const cs = (method, ...args) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error('timeout')), 10000);
+  cloud[method](...args, (err, val) => { clearTimeout(timer); if (err) reject(new Error(err)); else resolve(val); });
+});
+function cloudPack(d) {
+  const parts = { t: d.tasks, n: d.notes, d: d.done, m: { deleted: d.deleted, river: d.river, nextId: d.nextId } };
+  const keys = {}, idx = { v: 1 };
+  for (const [p, val] of Object.entries(parts)) {
+    const s = JSON.stringify(val);
+    idx[p] = Math.max(1, Math.ceil(s.length / CHUNK));
+    for (let i = 0; i < idx[p]; i++) keys[p + i] = s.slice(i * CHUNK, (i + 1) * CHUNK);
+  }
+  keys.idx = JSON.stringify(idx);
+  return keys;
+}
+function cloudUnpack(keys) {
+  const idx = JSON.parse(keys.idx);
+  const part = (p) => JSON.parse(Array.from({ length: idx[p] }, (_, i) => keys[p + i] || '').join('')); // нет куска — SyntaxError
+  const m = part('m');
+  return { tasks: part('t'), notes: part('n'), done: part('d'), deleted: m.deleted || {}, river: m.river || null, nextId: m.nextId || 100 };
+}
+async function cloudRead() {
+  const all = await cs('getKeys');
+  cloudKeys = Object.fromEntries(all.map((k) => [k, undefined])); // значения узнаем ниже; лишние ключи потом удалим
+  if (!all.includes('idx')) return null; // в облаке пусто
+  const keys = await cs('getItems', all);
+  Object.assign(cloudKeys, keys);
+  return cloudUnpack(keys);
+}
+async function cloudWrite(keys) {
+  if (Object.keys(keys).length > MAX_KEYS) throw new Error('cloud full');
+  const changed = Object.keys(keys).filter((k) => k !== 'idx' && cloudKeys[k] !== keys[k]);
+  await Promise.all(changed.map((k) => cs('setItem', k, keys[k]).then(() => { cloudKeys[k] = keys[k]; })));
+  if (cloudKeys.idx !== keys.idx) { await cs('setItem', 'idx', keys.idx); cloudKeys.idx = keys.idx; } // опись — последней
+  const stale = Object.keys(cloudKeys).filter((k) => !(k in keys));
+  if (stale.length) { await cs('removeItems', stale); stale.forEach((k) => delete cloudKeys[k]); }
+}
+// слияние двух копий: по каждому элементу побеждает более поздняя правка (при равенстве — своя);
+// удалённое не возвращается, если его не правили после удаления
+function mergeData(local, remote) {
+  const now = Date.now(), deleted = {};
+  for (const src of [remote.deleted, local.deleted]) for (const [k, ts] of Object.entries(src || {})) {
+    if (now - ts < TOMB_DAYS * DAY && !(deleted[k] >= ts)) deleted[k] = ts; // очень старые отметки забываем
+  }
+  const out = { deleted, nextId: Math.max(local.nextId || 0, remote.nextId || 0) };
+  for (const [kind, p] of Object.entries(KINDS)) {
+    const byId = new Map();
+    for (const it of [...remote[kind], ...local[kind]]) {
+      const cur = byId.get(it.id);
+      if (!cur || (it.upd || 0) >= (cur.upd || 0)) byId.set(it.id, it);
+    }
+    out[kind] = [...byId.values()].filter((it) => !(deleted[p + ':' + it.id] >= (it.upd || 0))).sort((a, b) => a.id - b.id);
+  }
+  const lr = local.river, rr = remote.river;
+  out.river = !lr ? rr : !rr ? lr : (rr.upd || 0) > (lr.upd || 0) ? rr : lr;
+  return out;
+}
+function applyMerged(m) {
+  if (JSON.stringify(cloudPack(m)) === JSON.stringify(cloudPack(db))) return; // нового ничего
+  Object.assign(db, m, { fresh: false });
+  takeSnap(); saveLocal();
+  renderAll();
+  if (current === 'river') renderRiver();
+}
+function cloudSync() {
+  if (!cloud) return Promise.resolve();
+  if (syncing || drag) { syncAgain = true; return syncing || Promise.resolve(); } // во время переноса карточки не трогаем данные
+  syncing = (async () => {
+    try {
+      const remote = await cloudRead();
+      // новая установка (ещё стартовые примеры) берёт облако целиком — примеры в облако не попадают
+      if (remote) applyMerged(db.fresh ? remote : mergeData(db, remote));
+      if (remote || !db.fresh) await cloudWrite(cloudPack(db));
+      cloudAt = Date.now(); cloudBroken = 0;
+    } catch (e) {
+      // нет сети или облако недоступно — локальная копия цела, повторим при следующей правке или открытии.
+      // Облако дважды подряд не читается (кусок записан наполовину) — перезаписываем своей копией
+      if (e instanceof SyntaxError && ++cloudBroken >= 2) {
+        try { await cloudWrite(cloudPack(db)); cloudBroken = 0; cloudAt = Date.now(); } catch (_) { /* в следующий раз */ }
+      }
+    }
+    syncing = null;
+    renderSync();
+    if (syncAgain) { syncAgain = false; cloudLater(); }
+  })();
+  return syncing;
+}
+function cloudLater(ms = 1200) {
+  if (!cloud) return;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(() => { cloudTimer = null; cloudSync(); }, ms);
+}
+function renderSync() { $('sync-val').textContent = cloud ? 'Облако Telegram' : 'Только телефон'; }
+function syncInfo() {
+  toast(cloud ? 'Дела и камушки хранятся в облаке Telegram и видны на всех твоих устройствах.' +
+    (cloudAt ? ' Сверено в ' + timeStr(new Date(cloudAt)) + '.' : '')
+    : 'Облако работает, когда Rocky открыт в Telegram. Сейчас данные только на этом устройстве.');
+}
+
 /* ===================== Telegram ===================== */
 let tg = null;
 function initTelegram() {
@@ -1093,6 +1230,7 @@ function initTelegram() {
   if (tg.isVersionAtLeast('6.9')) tg.setHeaderColor('#030912');
   if (tg.isVersionAtLeast('6.1')) tg.setBackgroundColor('#030912');
   if (tg.isVersionAtLeast('7.10')) tg.setBottomBarColor('#050b14');
+  if (tg.isVersionAtLeast('6.9') && tg.CloudStorage) { cloud = tg.CloudStorage; renderSync(); cloudSync(); }
 }
 function haptic(kind) {
   if (tg && tg.isVersionAtLeast('6.1')) kind === 'success' ? tg.HapticFeedback.notificationOccurred('success') : tg.HapticFeedback.impactOccurred('medium');
@@ -1106,6 +1244,7 @@ renderRiver();
 const tz = -new Date().getTimezoneOffset() / 60;
 $('tz-val').textContent = `(UTC${tz >= 0 ? '+' : ''}${tz})`;
 $('ver-val').textContent = 'версия ' + APP_VERSION;
+renderSync();
 
 if (window.Telegram) initTelegram(); else $('tg-sdk').addEventListener('load', initTelegram);
 
@@ -1114,9 +1253,12 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
   addEventListener('load', () => navigator.serviceWorker.register('sw.js?v=' + APP_VERSION).catch(() => {}));
 }
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); // не вычищать данные
-// вернулись в приложение (например, утром) — обновить сроки и речку
+// уходим из приложения — сразу отправить несохранённое в облако;
+// вернулись (например, утром или после правок на компьютере) — сверить облако, обновить сроки и речку
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible' || drag) return;
+  if (document.visibilityState === 'hidden') { if (cloudTimer) cloudSync(); return; }
+  if (drag) return;
+  cloudSync();
   renderTasks(); renderDone();
   if (current === 'river') renderRiver();
   if (current === 'profile') renderStats();
