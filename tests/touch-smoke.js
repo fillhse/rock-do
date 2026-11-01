@@ -161,21 +161,21 @@
   await mousePull(380);
   check('ноутбук: потянул мышью на 380 px — подсказка открылась, редактор дела не открылся', heroH() > 100 && !document.getElementById('o-task').classList.contains('on'));
   go('notes'); go('rock'); sc.scrollTop = 0;
-  // трекпад: докрутили снизу до «Моих дел» — инерция (тот же поток) подсказку не трогает;
-  // отдельный жест в самом верху туго тянет её: мало — уходит обратно, на высоту экрана — открывается
-  const wheel = (dy, t = sc) => t.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: dy }));
-  go('notes'); go('rock'); sc.scrollTop = 600; await sleep(300);
-  for (let i = 0; i < 60; i++) { wheel(-40); sc.scrollTop = Math.max(0, sc.scrollTop - 40); await sleep(16); }
-  await sleep(500);
-  check('трекпад: докрутили до верха по инерции — подсказка не вылезла', heroH() === 0 && sc.scrollTop === 0);
-  for (let i = 0; i < 5; i++) { wheel(-80); await sleep(16); }
-  await sleep(30); const partH = heroH();
-  await sleep(900);
-  check('трекпад: короткий жест в самом верху — подсказка туго показалась и ушла обратно', partH > 5 && partH < 80 && heroH() === 0);
-  for (let i = 0; i < 20; i++) { wheel(-80); await sleep(16); }
-  await sleep(900);
-  check('трекпад: длинный жест в самом верху — подсказка открылась', heroH() > 100);
-  go('notes'); go('rock'); sc.scrollTop = 0;
+  // колесо и трекпад в самом верху: упругий барьер — слабо толкнули: подсказка выглянула и ушла; продавили — открылась
+  const wheel = (dy) => sc.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: dy }));
+  const swipe = async (steps) => { for (const dy of steps) { wheel(dy); await sleep(16); } };
+  go('notes'); go('rock'); sc.scrollTop = 0; await sleep(200);
+  await swipe(Array(6).fill(-40)); const peek = heroH(); await sleep(900);
+  check('колесо/трекпад: слабо толкнули в самом верху — подсказка выглянула и ушла обратно', peek > 3 && peek < 60 && heroH() === 0);
+  await swipe(Array(6).fill(-40)); await swipe(Array(10).fill(40)); const back = heroH(); await sleep(400);
+  check('колесо/трекпад: выглянула и повели обратно — подсказка ушла, список снова листается', back === 0 && !wheelPull);
+  await swipe(Array(30).fill(-40)); await sleep(900);
+  check('колесо/трекпад: продавили барьер — подсказка открылась', heroH() > 100);
+  go('notes'); go('rock'); sc.scrollTop = 0; await sleep(200);
+  document.querySelector('#s-rock .count').click(); await sleep(900);
+  const openedByClick = heroH() > 100;
+  document.querySelector('#s-rock .count').click(); await sleep(900);
+  check('нажатие на «Мои дела» открывает подсказку, повторное — закрывает', openedByClick && heroH() === 0);
   // облако прислало правку, пока палец держит карточку (ждём удержания) — список не перерисовывается под пальцем
   { const card0 = cards()[0], el = card0.querySelector('b'), [x, y] = at(el, 20);
     el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: x, clientY: y, button: 0 }));
@@ -185,9 +185,6 @@
     check('пока палец держит карточку, облако список не трогает (busy)', held && !busy() && card0.isConnected); }
   document.querySelectorAll('.overlay.on').forEach((o) => o.classList.remove('on')); // синтетический click после броска в корзину попадает в «+»
   sc.scrollTop = 0; await sleep(50);
-  document.querySelector('.nav').dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 200 }));
-  await sleep(50);
-  check('Mac: колесо над нижней панелью тоже листает список', sc.scrollTop > 100);
   go('notes'); go('rock'); sc.scrollTop = 0;
   check('после жестов не осталось «призраков»', !drag && !document.querySelector('body > .card, body > .note-card, body > .done-wrap'));
 

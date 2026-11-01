@@ -26,12 +26,13 @@
 html,body{height:100%}
 body{background:var(--bg1);color:var(--text);font-size:14px;
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
-/* на телефоне — весь экран; на широком экране — колонка по центру */
-.app{position:relative;height:100%;max-width:480px;margin:0 auto;overflow:hidden;
+/* На телефоне — весь экран. На широком экране содержимое — колонка по центру (поля --side), а сами экраны
+   во всю ширину окна: колесо и трекпад листают список, где бы ни стоял курсор, — без скриптов */
+.app{position:relative;height:100%;overflow:hidden;--side:max(16px, calc((100% - 448px) / 2));
   background:linear-gradient(180deg,var(--bg1),var(--bg2))}
 
 /* overscroll-behavior: без «резинки» — в конце прокрутки список не улетает */
-.screen{position:absolute;inset:0;overflow-y:auto;overscroll-behavior:none;padding:calc(18px + var(--top)) 16px calc(116px + var(--bot));display:none}
+.screen{position:absolute;inset:0;overflow-y:auto;overscroll-behavior:none;padding:calc(18px + var(--top)) var(--side) calc(116px + var(--bot));display:none}
 .screen.on{display:block}
 h1{font-size:21px;margin-bottom:4px}
 .sub{color:var(--muted);font-size:12px;margin-bottom:16px}
@@ -48,7 +49,7 @@ h1{font-size:21px;margin-bottom:4px}
 .hero img{width:114px;height:auto;flex:none;filter:drop-shadow(0 10px 22px rgba(0,0,0,.45))}
 .hero .phrase{font-size:18px;font-weight:700;line-height:1.3}
 .hero .hint{color:var(--accent2);font-size:12px;line-height:1.4;margin-top:8px}
-.count{margin-bottom:10px}
+.count{margin-bottom:10px;cursor:pointer}
 .count b{color:var(--text)}
 /* подсказка с Рокки спрятана над «Моими делами»; открывается тугим потягиванием вниз */
 #s-rock{user-select:none;-webkit-user-select:none} /* тянут мышью — текст не выделяется */
@@ -102,7 +103,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 .trash-btn svg{width:26px;height:26px}
 
 /* отмена удаления */
-.snack{position:absolute;left:14px;right:14px;bottom:calc(92px + var(--bot));z-index:55;
+.snack{position:absolute;left:calc(var(--side) - 2px);right:calc(var(--side) - 2px);bottom:calc(92px + var(--bot));z-index:55;
   background:#131a2c;border:1px solid rgba(255,255,255,.08);border-radius:14px;
   padding:14px 16px;display:flex;align-items:center;justify-content:space-between;
   opacity:0;pointer-events:none;transform:translateY(16px);transition:all .2s ease}
@@ -120,7 +121,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 /* нижняя навигация */
 .nav{position:absolute;left:0;right:0;bottom:0;height:calc(76px + var(--bot));z-index:10;
   background:rgba(5,11,20,.96);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,.05);
-  display:flex;align-items:center;justify-content:space-around;padding:0 6px var(--bot)}
+  display:flex;align-items:center;justify-content:space-around;padding:0 calc(var(--side) - 10px) var(--bot)}
 .nav button{background:none;border:none;color:#6b7280;font-size:10px;letter-spacing:.02em;cursor:pointer;
   flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-height:48px;justify-content:center;
   transition:color .15s}
@@ -135,7 +136,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 
 /* окна поверх экрана */
 .overlay{position:absolute;inset:0;z-index:20;background:linear-gradient(180deg,var(--bg1),var(--bg2));
-  padding:calc(20px + var(--top)) 16px calc(20px + var(--bot));overflow-y:auto;display:none;animation:up .22s ease}
+  padding:calc(20px + var(--top)) var(--side) calc(20px + var(--bot));overflow-y:auto;display:none;animation:up .22s ease}
 .overlay.on{display:block}
 .overlay.col.on{display:flex;flex-direction:column}
 @keyframes up{from{transform:translateY(30px);opacity:0}}
@@ -204,11 +205,11 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 .rv-bg:after{content:'';position:absolute;inset:0;
   background:linear-gradient(180deg,rgba(3,9,18,.84) 0%,rgba(3,9,18,.3) 18%,rgba(3,9,18,0) 34%,
              rgba(3,9,18,.5) 55%,rgba(3,9,18,.88) 72%,rgba(3,9,18,.97) 100%)}
-.rv-top{position:absolute;top:0;left:0;right:0;padding:calc(18px + var(--top)) 16px 0;z-index:2}
+.rv-top{position:absolute;top:0;left:0;right:0;padding:calc(18px + var(--top)) var(--side) 0;z-index:2}
 .rv-chip{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:9px 15px;border-radius:22px;
   background:rgba(10,14,24,.55);backdrop-filter:blur(8px);color:#ffd479;font-size:13px;font-weight:600}
 .rv-chip svg{width:16px;height:16px;display:block}
-.rv-bottom{position:absolute;left:0;right:0;bottom:calc(96px + var(--bot));padding:0 16px;z-index:2}
+.rv-bottom{position:absolute;left:0;right:0;bottom:calc(96px + var(--bot));padding:0 var(--side);z-index:2}
 .rv-title{font-size:27px;font-weight:700;margin-bottom:8px;text-shadow:0 2px 14px rgba(0,0,0,.65)}
 .rv-text{font-size:15px;line-height:1.55;color:#e8ebf4;white-space:pre-line;margin-bottom:18px;
   text-shadow:0 1px 10px rgba(0,0,0,.7)}
@@ -254,7 +255,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 /* нижние меню */
 .sheet-back{position:absolute;inset:0;background:rgba(0,0,0,.6);z-index:30;display:none;align-items:flex-end}
 .sheet-back.on{display:flex}
-.sheet{background:var(--bg2);border-radius:18px 18px 0 0;padding:20px 16px calc(28px + var(--bot));width:100%;animation:up .2s ease}
+.sheet{background:var(--bg2);border-radius:18px 18px 0 0;padding:20px 16px calc(28px + var(--bot));width:100%;max-width:480px;margin:0 auto;animation:up .2s ease}
 .sheet h2{font-size:17px;margin-bottom:12px}
 .opt{padding:13px;border-radius:10px;cursor:pointer}
 .opt.sel{background:rgba(111,56,255,.25);color:#fff}
@@ -277,7 +278,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
         <div class="hint">Новые советы + Напоминания в Telegram</div>
       </div>
     </div></div>
-    <div class="sub count">Мои дела <b id="task-count">0</b></div>
+    <div class="sub count" onclick="if(!suppressClick)toggleHero()">Мои дела <b id="task-count">0</b></div>
     <div id="task-list"></div>
     <div id="reg-list"></div>
     <div id="done-list"></div>
@@ -457,7 +458,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.6.2';
+const APP_VERSION = '1.6.5';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -1133,15 +1134,15 @@ function endDrag(cancelled) {
 }
 
 /* ===================== подсказка над «Моими делами» ===================== */
-/* Подсказка с Рокки спрятана: камень открывается сразу с «Моих дел». Открывается, как «потяни, чтобы
-   обновить»: список в самом верху, тянем вниз — она туго выезжает следом; дотянули — открывается,
-   нет — уходит обратно. Тянуть можно пальцем, мышью (зажал и повёл) и двумя пальцами по трекпаду.
-   Насколько тянуть — доля высоты экрана, а не пиксели: на любом экране одинаково по ощущению.
-   Обычная прокрутка не меняется: жест работает только там, где прокручивать вверх уже некуда.
-   Уходим с камня — снова прячется. */
-const PULL_SHARE = 0.4;  // пальцем или мышью — на 40% высоты экрана
-const WHEEL_SHARE = 1;   // трекпадом или колесом — прокрутить на высоту экрана
-const WHEEL_GAP = 150;   // пауза между событиями прокрутки, после которой это уже новый жест
+/* Подсказка с Рокки спрятана: камень открывается сразу с «Моих дел». Открыть:
+   - потянуть вниз, как «потяни, чтобы обновить» (пальцем; на компьютере — зажать мышью и повести):
+     список в самом верху, подсказка туго выезжает следом; дотянули — открывается, нет — уходит обратно;
+   - прокрутить вверх колесом или трекпадом, когда список уже в самом верху: прокрутка упирается
+     в упругий барьер (см. resist) — сначала подсказка чуть выглядывает, дальше сопротивление резко
+     растёт, а продавил — поддаётся легко и открывается. Инерция докрутки снизу о барьер гаснет;
+   - нажать на заголовок «Мои дела» (то же — закрыть).
+   Насколько тянуть — доля высоты экрана, а не пиксели. Уходим с камня — подсказка снова прячется. */
+const PULL_SHARE = 0.4; // на 40% высоты экрана
 const heroWrap = () => $('hero-wrap');
 const heroFull = () => { const h = heroWrap().firstElementChild; return h.offsetHeight + parseFloat(getComputedStyle(h).marginBottom); };
 const screenH = () => $('s-rock').clientHeight;
@@ -1149,10 +1150,11 @@ const screenH = () => $('s-rock').clientHeight;
 const rubber = (t, full) => (1 - 1 / (Math.max(0, t) * 0.54 + 1)) * full;
 const unrubber = (h, full) => (1 / (1 - Math.min(0.99, h / full)) - 1) / 0.54;
 // высота → вид (--p в CSS): к моменту «можно отпускать» подсказка уже проявилась целиком
-function heroShow(h, full) {
+// p — насколько проявилась (0…1); по умолчанию — полностью к моменту «можно отпускать»
+function heroShow(h, full, p = h / rubber(1, full)) {
   const w = heroWrap();
   w.style.height = Math.max(0, h) + 'px';
-  w.style.setProperty('--p', Math.min(1, Math.max(0, h / rubber(1, full))).toFixed(3));
+  w.style.setProperty('--p', Math.min(1, Math.max(0, p)).toFixed(3));
 }
 function heroFinish(open) {
   const w = heroWrap();
@@ -1178,13 +1180,14 @@ function heroSpring(to, v) {
   };
   heroAnim = requestAnimationFrame(step);
 }
+function toggleHero() { setHero(!heroWrap().classList.contains('open'), true); }
 function setHero(open, animate, v = 0) {
   cancelAnimationFrame(heroAnim);
   heroWrap().classList.toggle('open', open);
   heroWrap().classList.remove('hop');
   if (animate) heroSpring(open ? heroFull() : 0, v); else heroFinish(open);
 }
-const canPull = () => current === 'rock' && !drag && !heroWrap().classList.contains('open') && $('s-rock').scrollTop <= 0;
+const canPull = () => !drag && !heroWrap().classList.contains('open') && $('s-rock').scrollTop <= 0;
 // жест начался: подхватили на лету (подсказка ещё уходит) — продолжаем с той же высоты, без скачка
 function pullBegin(g) {
   cancelAnimationFrame(heroAnim);
@@ -1226,30 +1229,38 @@ function pullEnd() {
   suppressClick = true; setTimeout(() => { suppressClick = false; }, 300); // мышь отпустили над карточкой — это не клик по ней
 }
 
-/* Трекпад и колесо. Жест — непрерывный поток событий прокрутки (пауза больше WHEEL_GAP — уже новый).
-   Тянет подсказку только поток, НАЧАТЫЙ, когда список уже в самом верху: докрутили до «Моих дел»
-   снизу — инерция идёт тем же потоком и подсказку не трогает. Поток кончился — отпустили. */
-let wheelPull = null, wheelLast = 0, wheelTimer = 0;
-function onWheel(e) {
-  const now = performance.now(), fresh = now - wheelLast > WHEEL_GAP;
-  wheelLast = now;
-  const sc = document.querySelector('.screen.on');
-  if (!sc || document.querySelector('.overlay.on, .sheet-back.on')) return;
-  if (fresh) wheelPull = e.deltaY < 0 && canPull() && !pull ? { x: 0, open: screenH() * WHEEL_SHARE } : null;
-  if (wheelPull) {
-    e.preventDefault(); // тянем подсказку — список не двигаем
-    if (!wheelPull.on) { wheelPull.on = true; pullBegin(wheelPull); }
-    wheelPull.x = Math.max(0, wheelPull.x - e.deltaY);
-    pullTo(wheelPull, wheelPull.x / wheelPull.open);
-    clearTimeout(wheelTimer);
-    wheelTimer = setTimeout(() => { const g = wheelPull; wheelPull = null; if (g) pullRelease(g); }, WHEEL_GAP);
-    return;
-  }
-  // курсор над полями по бокам от колонки приложения (широкое окно Telegram на Mac) или над нижней
-  // панелью — листаем экран сами; над самим экраном листает браузер
-  if (!e.target.closest('.screen')) sc.scrollTop += e.deltaY;
+/* Колесо и трекпад: упругий барьер. Сопротивление от того, насколько подсказка уже выглянула (f — доля
+   её высоты): у края почти нет, к PEAK резко растёт до пика, за пиком спадает до обычного —
+     resist(f) = 1 + A·x²·e^(1−x²), x = f / PEAK.
+   A подобран так, чтобы до пика нужно было прокрутить WHEEL_BARRIER высоты экрана. Прокрутка кончилась
+   (WHEEL_REST без событий): продавили пик — подсказка открывается, нет — пружиной уходит обратно. */
+const PEAK = 0.3, WHEEL_BARRIER = 0.5, WHEEL_REST = 150;
+const resist = (f, A) => { const x = f / PEAK; return 1 + A * x * x * Math.exp(1 - x * x); };
+let wheelPull = null, wheelTimer = 0;
+function wheelRelease() {
+  const g = wheelPull; wheelPull = null;
+  if (g) setHero(g.r / g.full > PEAK, true);
 }
-document.addEventListener('wheel', onWheel, { passive: false });
+function onWheel(e) {
+  if (pull || document.querySelector('.overlay.on, .sheet-back.on')) return;
+  if (!wheelPull) {
+    if (e.deltaY >= 0 || !canPull()) return; // вниз или не в самом верху — обычная прокрутка
+    cancelAnimationFrame(heroAnim);
+    const full = heroFull();
+    wheelPull = { full, r: heroWrap().offsetHeight, A: (screenH() * WHEEL_BARRIER / (PEAK * full) - 1) / 0.515 }; // 0,515 — ∫₀¹ x²e^(1−x²)dx
+  }
+  const g = wheelPull;
+  if (e.deltaY > 0) { // повели обратно: сначала уходит подсказка, потом листается список
+    if (g.r <= 0) { clearTimeout(wheelTimer); wheelPull = null; return; }
+    e.preventDefault();
+    g.r = Math.max(0, g.r - e.deltaY);
+  } else {
+    for (let u = -e.deltaY; u > 0 && g.r < g.full; u--) g.r += Math.min(u, 1) / resist(g.r / g.full, g.A);
+  }
+  heroShow(g.r, g.full, g.r / (PEAK * g.full));
+  clearTimeout(wheelTimer); wheelTimer = setTimeout(wheelRelease, WHEEL_REST);
+}
+
 
 /* ===================== облако Telegram ===================== */
 /* Копия данных в CloudStorage Telegram: она привязана к аккаунту и боту, а не к телефону — переживёт
@@ -1597,6 +1608,7 @@ $('s-rock').addEventListener('touchstart', (e) => { if (e.touches.length === 1) 
 $('s-rock').addEventListener('touchmove', (e) => pullMove(e.touches[0].clientY, e), { passive: false });
 $('s-rock').addEventListener('touchend', pullEnd);
 $('s-rock').addEventListener('touchcancel', pullEnd);
+$('s-rock').addEventListener('wheel', onWheel, { passive: false });
 $('s-rock').addEventListener('mousedown', (e) => { if (e.button === 0 && !e.sourceCapabilities?.firesTouchEvents) pullStart(e.clientY); });
 document.addEventListener('mousemove', (e) => { if (pull && e.buttons & 1) pullMove(e.clientY, e); });
 document.addEventListener('mouseup', pullEnd);
