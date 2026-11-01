@@ -575,7 +575,28 @@ const plural = (n, f) => f[n % 10 === 1 && n % 100 !== 11 ? 0 : n % 10 >= 2 && n
 let current = 'rock';
 // камень открывается сразу с «Моих дел»; подсказка с Рокки — выше, до неё можно долистать
 const rockTopOffset = () => $('rock-main').offsetTop - parseFloat(getComputedStyle($('s-rock')).paddingTop);
-function rockToTop() { $('s-rock').scrollTop = rockTopOffset(); }
+function rockToTop() { $('s-rock').scrollTop = rockRest = rockTopOffset(); }
+/* Подсказка над «Моими делами» открывается «тяжелее» обычной прокрутки:
+   - стена: движение вверх, начатое в списке (даже резкое, с инерцией), останавливается на «Моих делах»;
+     к подсказке ведёт только отдельное движение вверх уже от них;
+   - защёлка: отпустил, когда подсказка открыта меньше чем на 2/3, — уезжает обратно, иначе открывается целиком.
+   Полуоткрытой подсказка не остаётся. Всё на обычной прокрутке — одинаково для пальца и трекпада. */
+const HINT_OPEN = 2 / 3, SCROLL_IDLE_MS = 160;
+let rockRest = 0, rockTouching = false, rockIdleTimer;
+function onRockScroll() {
+  const sc = $('s-rock'), off = rockTopOffset();
+  if (!drag && rockRest > off + 1 && sc.scrollTop < off) sc.scrollTop = off; // стена
+  clearTimeout(rockIdleTimer);
+  rockIdleTimer = setTimeout(rockIdle, SCROLL_IDLE_MS);
+}
+function rockIdle() {
+  const sc = $('s-rock'), off = rockTopOffset();
+  if (rockTouching || drag || !sc.classList.contains('on')) return; // палец ещё на экране — решим, когда отпустит
+  rockRest = sc.scrollTop;
+  if (sc.scrollTop > 0.5 && sc.scrollTop < off - 0.5) { // защёлка
+    sc.scrollTo({ top: (off - sc.scrollTop) / off >= HINT_OPEN ? 0 : off, behavior: 'smooth' });
+  }
+}
 function go(s) {
   const wasRock = current === 'rock' && $('s-rock').classList.contains('on');
   current = s;
@@ -1005,7 +1026,8 @@ function pressStart(e, id, type) {
     }
     if (lifted) { if (ev.cancelable) ev.preventDefault(); dragMove(p.clientX, p.clientY); }
   };
-  const up = (ev) => { finish(); if (lifted) endDrag(ev.type === CANCEL); };
+  // отпускание приходит сюда, а не на экран камня: карточка под пальцем могла выпасть из страницы при перерисовке
+  const up = (ev) => { finish(); if (touch) rockTouching = false; if (lifted) endDrag(ev.type === CANCEL); };
   function finish() {
     clearTimeout(timer);
     host.removeEventListener(MOVE, move); host.removeEventListener(UP, up); host.removeEventListener(CANCEL, up);
@@ -1059,8 +1081,16 @@ function autoScroll() {
     const y = drag.py - drag.dy + drag.h / 2;
     const v = y < top ? -Math.min(14, (top - y) / 4) : y > bottom && y < hotTop ? Math.min(14, (y - bottom) / 4) : 0;
     const before = sc.scrollTop;
-    // на камне вверх — не дальше «Моих дел»: подсказка с Рокки при переносе не нужна
-    const min = sc.id === 's-rock' ? Math.min(before, rockTopOffset()) : 0;
+    let min = 0;
+    if (sc.id === 's-rock') { // на камне подсказка при переносе не нужна: если видна — плавно уезжает,
+      min = rockTopOffset();   // а вверх список прокручивается не дальше «Моих дел»
+      if (before < min - 0.5) {
+        sc.scrollTop = Math.min(min, before + Math.max(4, (min - before) * 0.25));
+        dragMove(drag.px, drag.py);
+        requestAnimationFrame(autoScroll);
+        return;
+      }
+    }
     if (v) sc.scrollTop = Math.max(min, before + v);
     if (sc.scrollTop !== before) dragMove(drag.px, drag.py);
   }
@@ -1474,6 +1504,9 @@ function renderAll() { renderTasks(); renderDone(); renderNotes(); renderStats()
 renderAll();
 renderRiver();
 rockToTop();
+$('s-rock').addEventListener('scroll', onRockScroll, { passive: true });
+$('s-rock').addEventListener('touchstart', () => { rockTouching = true; }, { passive: true });
+for (const ev of ['touchend', 'touchcancel']) $('s-rock').addEventListener(ev, () => { rockTouching = false; onRockScroll(); }, { passive: true });
 const tz = -new Date().getTimezoneOffset() / 60;
 $('tz-val').textContent = `(UTC${tz >= 0 ? '+' : ''}${tz})`;
 $('ver-val').textContent = 'версия ' + APP_VERSION;

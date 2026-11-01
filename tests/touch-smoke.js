@@ -123,6 +123,26 @@
   await hold(up0, pu, [pu[0], 30], 1500);
   check('перенос вверх: прокрутка остановилась на «Моих делах», подсказка не выехала',
     sc.scrollTop === rockOff() && document.querySelector('.hero').getBoundingClientRect().bottom <= sc.getBoundingClientRect().top + 20);
+  // подсказка приоткрыта, а дело переносим — подсказка плавно уезжает, дело встаёт наверх
+  const near = (a, b) => Math.abs(a - b) < 1.5;
+  sc.scrollTop = rockOff() / 2;
+  const half0 = titles()[2], hb = mcardsUp()[2].querySelector('b'), ph = at(hb, 20);
+  const listTop = mcardsUp()[0].getBoundingClientRect().top;
+  await hold(hb, ph, [ph[0], listTop + 5 - (rockOff() / 2)], 1200);
+  check('подсказка приоткрыта, переносим дело — подсказка уехала, дело наверху',
+    near(sc.scrollTop, rockOff()) && titles()[0] === half0);
+  // защёлка: открыта меньше чем на 2/3 — уезжает обратно; больше — открывается целиком
+  sc.scrollTop = rockOff() * 0.6; await sleep(900);
+  const back = near(sc.scrollTop, rockOff());
+  sc.scrollTop = rockOff() * 0.2; await sleep(900);
+  check('защёлка: подсказка открыта на 40% — уехала, на 80% — открылась целиком', back && near(sc.scrollTop, 0));
+  // стена: резко вверх из глубины списка — останавливается на «Моих делах»
+  sc.scrollTop = rockOff() + 300; await sleep(400);
+  sc.scrollTop = 0; await sleep(400);
+  const wall = near(sc.scrollTop, rockOff());
+  sc.scrollTop = rockOff() * 0.1; await sleep(900); // отдельное движение вверх от «Моих дел» — подсказка открывается
+  check('стена: из списка вверх — стоп на «Моих делах»; отдельным движением — подсказка открывается', wall && near(sc.scrollTop, 0));
+  rockToTop(); await sleep(300);
   // мышь и трекпад (ноутбук): нажал и сразу повёл — перенос без удержания; просто клик — открывает дело
   const mcards = () => document.querySelectorAll('#task-list .card.task');
   sc.scrollTop = 0; rockToTop(); await sleep(50);
