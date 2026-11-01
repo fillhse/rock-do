@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Rocky — анимации подсказки</title>
+<style>
+/* Песочница: варианты открытия подсказки с Рокки. Экран камня — копия вида из приложения. */
+:root{
+  --bg1:#030912; --bg2:#07131c; --card:rgba(255,255,255,.05);
+  --accent2:#6f38ff; --orange:#ffa42e; --text:#eef0f6; --muted:#8b93a7; --radius:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{background:var(--bg1);color:var(--text);font-size:14px;overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.app{position:relative;height:100%;max-width:480px;margin:0 auto;display:flex;flex-direction:column;
+  background:linear-gradient(180deg,var(--bg1),var(--bg2))}
+
+/* панель выбора */
+.bar{flex:none;padding:10px 12px 8px;border-bottom:1px solid rgba(255,255,255,.07);background:#050c18}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid rgba(255,255,255,.12);background:transparent;color:var(--text);
+  border-radius:999px;padding:7px 12px;font:inherit;font-size:13px;cursor:pointer}
+.chip.on{background:var(--accent2);border-color:var(--accent2)}
+.row{display:flex;gap:6px;align-items:center;margin-top:4px}
+.btn{flex:1;border:0;border-radius:10px;padding:9px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;
+  background:rgba(255,255,255,.08);color:var(--text)}
+.desc{color:var(--muted);font-size:12px;line-height:1.4;margin-top:8px;min-height:34px}
+
+/* экран камня */
+.screen{flex:1;overflow-y:auto;padding:18px 16px 40px;overscroll-behavior:contain}
+.sub{color:var(--muted);font-size:12px}
+.count{margin-bottom:10px}
+.count b{color:var(--text)}
+.card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);
+  padding:13px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;user-select:none;-webkit-user-select:none}
+.checkbox{width:22px;height:22px;flex:none;border:2px solid var(--accent2);border-radius:50%}
+.card b{font-weight:500;flex:1}
+.due{color:var(--orange);font-size:11px}
+.pull-tip{color:var(--muted);font-size:11px;text-align:center;margin:-4px 0 12px;transition:opacity .2s}
+
+.wrap{height:0;overflow:hidden;display:flex;flex-direction:column}
+.hero{flex:none;display:flex;gap:16px;align-items:center;margin-bottom:18px;min-height:142px;position:relative;
+  padding:14px 18px;border-radius:18px;border:1px solid rgba(255,255,255,.06);
+  background:radial-gradient(circle at 24% 62%, rgba(111,56,255,.16), transparent 62%),
+             linear-gradient(135deg,#0c1224 0%,#170f38 100%)}
+.hero img{width:114px;height:auto;flex:none;filter:drop-shadow(0 10px 22px rgba(0,0,0,.45))}
+.hero .phrase{font-size:18px;font-weight:700;line-height:1.3}
+.hero .hint{color:var(--accent2);font-size:12px;line-height:1.4;margin-top:8px}
+
+/* добавки, которые включают отдельные варианты */
+.hero .shine{position:absolute;inset:0;border-radius:inherit;overflow:hidden;pointer-events:none}
+.hero .shine::after{content:'';position:absolute;inset:0;transform:translateX(-130%);
+  background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.16) 50%,transparent 70%)}
+.fx-shine .hero .shine::after{animation:shine 1s cubic-bezier(.4,0,.2,1)}
+@keyframes shine{to{transform:translateX(130%)}}
+.fx-hop .hero img{animation:hop .6s cubic-bezier(.3,1.6,.5,1)}
+@keyframes hop{0%{transform:none}35%{transform:translateY(-12px) rotate(-6deg) scale(1.06)}70%{transform:translateY(2px) rotate(2deg) scale(.98)}100%{transform:none}}
+.fx-cascade .hero img{animation:drop .7s cubic-bezier(.3,1.5,.5,1) both}
+.fx-cascade .hero .phrase{animation:rise .5s .18s ease-out both}
+.fx-cascade .hero .hint{animation:rise .5s .32s ease-out both}
+@keyframes drop{from{transform:translateY(-50px) scale(.8);opacity:0}to{transform:none;opacity:1}}
+@keyframes rise{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
+.fx-glow .hero{animation:glow 1.1s ease-out}
+@keyframes glow{0%{box-shadow:0 0 0 0 rgba(111,56,255,.0)}30%{box-shadow:0 0 34px 4px rgba(111,56,255,.55)}100%{box-shadow:0 0 0 0 rgba(111,56,255,0)}}
+.fx-type .hero .phrase,.fx-type .hero .hint{animation:fadein .45s ease-out both}
+.fx-type .hero .hint{animation-delay:.25s}
+@keyframes fadein{from{opacity:0;filter:blur(4px)}to{opacity:1;filter:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="bar">
+    <div class="chips" id="chips"></div>
+    <div class="row">
+      <button class="btn" id="replay">▶ Показать открытие</button>
+      <button class="btn" id="hide">Спрятать</button>
+    </div>
+    <div class="desc" id="desc"></div>
+  </div>
+  <div class="screen" id="sc">
+    <div class="wrap" id="wrap"><div class="hero" id="hero">
+      <img src="../img/rock-neutral.webp" alt="Рокки" width="360" height="322">
+      <div>
+        <div class="phrase">Маленький шаг сегодня — большая гора завтра.</div>
+        <div class="hint">Новые советы + Напоминания в Telegram</div>
+      </div>
+      <div class="shine"></div>
+    </div></div>
+    <div class="pull-tip" id="tip">↓ потяни вниз от самого верха списка</div>
+    <div class="sub count">Мои дела <b>3</b></div>
+    <div class="card"><div class="checkbox"></div><b>Позвонить маме</b></div>
+    <div class="card"><div class="checkbox"></div><b>Учить английский 15 мин</b><span class="due">Завтра 10:00</span></div>
+    <div class="card"><div class="checkbox"></div><b>Прочитать 20 страниц</b></div>
+    <div class="sub count" style="margin-top:8px">Регулярные <b>1</b></div>
+    <div class="card"><div class="checkbox"></div><b>Тренировка</b></div>
+    <div class="card"><div class="checkbox"></div><b>Купить продукты</b></div>
+    <div class="card"><div class="checkbox"></div><b>Написать отчёт</b></div>
+    <div class="card"><div class="checkbox"></div><b>Полить цветы</b></div>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const sc = $('sc'), wrap = $('wrap'), hero = $('hero'), img = hero.querySelector('img');
+const texts = [hero.querySelector('.phrase'), hero.querySelector('.hint')];
+const SLOP = 8, PULL_OPEN = 140;
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+
+/* Вариант: rubber — высота от пути пальца; anchor — откуда выезжает; draw(p, f) — вид (p — проявление,
+   1 к моменту «можно отпускать»; f — доля полной высоты); spring — [отклик, затухание]; fx — добавка
+   при открытии; snap — открывается сам, как только дотянули. */
+const ios = (k) => (x, full) => (1 - 1 / (x * k / full + 1)) * full;
+const VARIANTS = [
+  { name: 'Ровно за пальцем', desc: 'Как в 1.5.3: подсказка едет за пальцем без эффектов, отпустили — доезжает.',
+    rubber: (x, full) => Math.min(full, x * 0.4), anchor: 'top', spring: [0.3, 1] },
+  { name: 'Apple', desc: 'Как в 1.5.5: резинка iOS, проявление из размытия, мягкая пружина.',
+    rubber: ios(0.55), anchor: 'bottom', spring: [0.5, 0.86],
+    draw: (p) => { hero.style.opacity = p; hero.style.transform = `scale(${0.94 + 0.06 * p})`; hero.style.filter = `blur(${(1 - p) * 6}px)`; hero.style.transformOrigin = '50% 100%'; } },
+  { name: 'Шторка', desc: 'Подсказка целиком съезжает сверху, как шторка уведомлений, и садится с лёгкой пружинкой.',
+    rubber: ios(0.8), anchor: 'bottom', spring: [0.45, 0.72] },
+  { name: 'Пружинка', desc: 'Как в 1.5.4: Рокки разворачивается и подрастает, отпустили — пружинка и прыжок.',
+    rubber: (x, full) => full * 0.5 * (1 - Math.exp(-x / 150)), anchor: 'bottom', spring: [0.5, 0.55], fx: 'fx-hop',
+    draw: (p) => { hero.style.opacity = p; hero.style.transform = `scale(${0.88 + 0.12 * p})`; hero.style.transformOrigin = '50% 100%';
+      img.style.transform = `rotate(${(1 - p) * -18}deg) scale(${0.6 + 0.4 * p})`; } },
+  { name: 'Створка', desc: 'Подсказка прикреплена сверху и раскладывается к тебе, как откидная крышка. Раскрылась — блик.',
+    rubber: ios(0.9), anchor: 'top', spring: [0.55, 0.78], fx: 'fx-shine',
+    draw: (p, f) => { wrap.style.perspective = '700px'; wrap.style.perspectiveOrigin = '50% 0';
+      hero.style.transformOrigin = '50% 0'; hero.style.transform = `rotateX(${Math.acos(clamp(f)) * 180 / Math.PI}deg)`;
+      hero.style.filter = `brightness(${0.35 + 0.65 * clamp(f)})`; } },
+  { name: 'Капля', desc: 'Как Dynamic Island на iPhone: из маленькой капли сверху вырастает в карточку.',
+    rubber: ios(0.8), anchor: 'top', spring: [0.5, 0.7],
+    draw: (p, f) => { const q = clamp(f), side = (1 - q) * 42, bottom = Math.max(0, hero.offsetHeight - f * full()); // низ капли — по краю открытого места
+      hero.style.clipPath = `inset(0 ${side}% ${bottom}px ${side}% round ${18 + (1 - q) * 40}px)`;
+      img.style.opacity = texts[0].style.opacity = texts[1].style.opacity = clamp((q - 0.45) / 0.4); } },
+  { name: 'Рокки выглядывает', desc: 'Пока тянешь — в окошке выглядывает Рокки. Отпустил — карточка раскрывается кругом от него.',
+    rubber: ios(0.8), anchor: 'top', spring: [0.6, 0.85],
+    draw: (p, f, fr) => { const grow = clamp((f - fr) / (1 - fr));
+      hero.style.clipPath = `circle(${36 + p * 22 + grow * 420}px at 75px 50%)`;
+      img.style.transform = `translateY(${(1 - p) * 30}px)`; } },
+  { name: 'Желе', desc: 'Карточка тянется и пружинит, как желе: сжимается, пока тянешь, и колышется, раскрывшись.',
+    rubber: ios(0.8), anchor: 'top', spring: [0.5, 0.42],
+    draw: (p, f) => { hero.style.transformOrigin = '50% 0'; hero.style.transform = `scale(${1 + (1 - f) * 0.08}, ${f})`; } },
+  { name: 'Каскад', desc: 'Сначала появляется карточка, потом сверху падает Рокки, следом по очереди всплывает текст.',
+    rubber: ios(0.7), anchor: 'bottom', spring: [0.45, 0.9], fx: 'fx-cascade',
+    draw: (p) => { img.style.opacity = texts[0].style.opacity = texts[1].style.opacity = 0; hero.style.opacity = 0.4 + 0.6 * p; } },
+  { name: 'Свечение', desc: 'Карточка проявляется из темноты, раскрывшись — вспыхивает фиолетовым светом, текст проступает.',
+    rubber: ios(0.7), anchor: 'bottom', spring: [0.5, 0.86], fx: 'fx-glow fx-type',
+    draw: (p) => { hero.style.filter = `brightness(${0.3 + 0.7 * p}) saturate(${0.5 + 0.5 * p})`; } },
+  { name: 'Магнит', desc: 'Тянешь туго, но стоит дотянуть — подсказка сама «примагничивается» и открывается, не дожидаясь, пока отпустишь.',
+    rubber: ios(0.55), anchor: 'bottom', spring: [0.42, 0.75], snap: true, fx: 'fx-shine',
+    draw: (p) => { hero.style.opacity = 0.3 + 0.7 * p; hero.style.transform = `scale(${0.96 + 0.04 * p})`; hero.style.transformOrigin = '50% 100%'; } },
+];
+
+let V = VARIANTS[0], open = false, anim = 0;
+const full = () => hero.offsetHeight + 18;
+const fReady = () => V.rubber(PULL_OPEN - SLOP, full()) / full();
+
+function clearStyles() {
+  [hero, img, ...texts].forEach((el) => el.removeAttribute('style'));
+  wrap.style.perspective = wrap.style.perspectiveOrigin = '';
+}
+function show(h) {
+  const F = full(), f = h / F, fr = fReady();
+  wrap.style.height = Math.max(0, h) + 'px';
+  clearStyles();
+  if (V.draw) V.draw(clamp(f / fr), f, fr);
+  $('tip').style.opacity = h > 2 ? 0 : 1;
+}
+function finish(isOpen) {
+  clearStyles();
+  wrap.style.height = isOpen ? full() + 'px' : '0px';
+  $('tip').style.opacity = isOpen ? 0 : 1;
+  if (isOpen && V.fx) { wrap.className = 'wrap'; void wrap.offsetWidth; wrap.className = 'wrap ' + V.fx; }
+}
+// пружина: [отклик, затухание] как у SwiftUI .spring(response:dampingFraction:)
+function spring(to, v = 0) {
+  cancelAnimationFrame(anim);
+  const [resp, damp] = V.spring, k = (2 * Math.PI / resp) ** 2, c = 4 * Math.PI * damp / resp;
+  let x = wrap.offsetHeight, last = performance.now();
+  const step = (now) => {
+    const dt = Math.min(0.032, (now - last) / 1000) / 4; last = now;
+    for (let i = 0; i < 4; i++) { v += (-k * (x - to) - c * v) * dt; x += v * dt; }
+    if (Math.abs(x - to) < 0.5 && Math.abs(v) < 10) return finish(to > 0);
+    show(x);
+    anim = requestAnimationFrame(step);
+  };
+  anim = requestAnimationFrame(step);
+}
+function setOpen(o, v) { open = o; wrap.className = 'wrap'; spring(o ? full() : 0, v); }
+function reset() { cancelAnimationFrame(anim); open = false; wrap.className = 'wrap'; finish(false); sc.scrollTop = 0; }
+function pick(i) {
+  V = VARIANTS[i];
+  document.querySelectorAll('.chip').forEach((c, j) => c.classList.toggle('on', i === j));
+  $('desc').textContent = V.desc;
+  wrap.style.justifyContent = V.anchor === 'bottom' ? 'flex-end' : 'flex-start';
+  reset();
+}
+VARIANTS.forEach((v, i) => {
+  const b = document.createElement('button');
+  b.className = 'chip'; b.textContent = (i + 1) + '. ' + v.name; b.onclick = () => pick(i);
+  $('chips').appendChild(b);
+});
+$('replay').onclick = () => { reset(); setTimeout(() => setOpen(true, 0), 120); };
+$('hide').onclick = reset;
+
+/* жест: палец (как в приложении) и мышь (для проверки на компьютере) */
+let pull = null;
+const buzz = () => { if (navigator.vibrate) navigator.vibrate(15); };
+function pStart(y) { pull = !open && sc.scrollTop <= 0 ? { y } : null; }
+function pMove(y, ev) {
+  if (!pull) return;
+  const d = y - pull.y;
+  if (d <= 0 && !pull.on) { pull = null; return; }
+  if (ev && ev.cancelable) ev.preventDefault();
+  if (d < SLOP && !pull.on) return;
+  if (!pull.on) { pull.on = true; cancelAnimationFrame(anim); wrap.className = 'wrap'; }
+  const h = V.rubber(Math.max(0, d - SLOP), full()), now = performance.now();
+  if (pull.t) pull.v = (h - pull.h) / Math.max(1, now - pull.t) * 1000;
+  pull.h = h; pull.t = now;
+  const ready = d >= PULL_OPEN;
+  if (ready && !pull.ready) buzz();
+  pull.ready = ready;
+  if (ready && V.snap) { const v = pull.v; pull = null; setOpen(true, v); return; }
+  show(h);
+}
+function pEnd() {
+  if (!pull) return;
+  const p = pull; pull = null;
+  if (p.on) setOpen(!!p.ready, p.v || 0);
+}
+sc.addEventListener('touchstart', (e) => pStart(e.touches[0].clientY), { passive: true });
+sc.addEventListener('touchmove', (e) => pMove(e.touches[0].clientY, e), { passive: false });
+sc.addEventListener('touchend', pEnd);
+sc.addEventListener('touchcancel', pEnd);
+sc.addEventListener('mousedown', (e) => { pStart(e.clientY); e.preventDefault(); });
+addEventListener('mousemove', (e) => { if (pull && e.buttons) pMove(e.clientY); });
+addEventListener('mouseup', pEnd);
+pick(0);
+</script>
+</body>
+</html>
