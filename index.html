@@ -23,8 +23,8 @@ const IN_TG = (() => {
 })();
 const tgTry = (fn) => { try { fn(); } catch (e) {} }; // одна упавшая команда не ломает остальные
 /* событие в Telegram напрямую по его протоколу (core.telegram.org/api/web-events) — без ожидания SDK.
-   Нужно только для «готово» сразу после первой отрисовки: Telegram держит свой экран загрузки,
-   пока не получит web_app_ready или пока не загрузится вся страница. */
+   Нужно для того, что должно случиться в первые миллисекунды: полный экран и «готово» после
+   первой отрисовки (Telegram держит свой экран загрузки, пока не получит web_app_ready). */
 function tgPost(type, data = {}) {
   if (!IN_TG) return;
   tgTry(() => {
@@ -33,6 +33,16 @@ function tgPost(type, data = {}) {
     else if (window.parent !== window) parent.postMessage(JSON.stringify({ eventType: type, eventData: data }), 'https://web.telegram.org');
   });
 }
+/* на телефоне — всегда на весь экран, как бы ни открыли (из списка чатов или кнопкой в боте).
+   Просим сразу, ещё до отрисовки: платформу и версию Telegram кладёт в адрес (#tgWebAppPlatform=…). */
+function tgEarlyFullscreen(hash = location.hash) {
+  const p = new URLSearchParams(hash.slice(1));
+  const asked = /^(android|ios)$/.test(p.get('tgWebAppPlatform')) && parseFloat(p.get('tgWebAppVersion')) >= 8 &&
+    p.get('tgWebAppFullscreen') !== '1';
+  if (asked) tgPost('web_app_request_fullscreen');
+  return asked;
+}
+const TG_FULLSCREEN_ASKED = IN_TG && tgEarlyFullscreen();
 if (IN_TG) {
   document.documentElement.classList.add('tg');
   const s = document.createElement('script');
@@ -57,8 +67,9 @@ if (IN_TG) {
     });
     tgTry(() => tg.ready());
     tgTry(() => tg.expand());
-    // на телефоне — всегда на весь экран, как бы ни открыли: из списка чатов или кнопкой в боте
-    tgTry(() => tg.isVersionAtLeast('8.0') && /android|ios/.test(tg.platform) && !tg.isFullscreen && tg.requestFullscreen());
+    // запасной путь, если в адресе не было параметров запуска (например, после перезагрузки)
+    tgTry(() => !TG_FULLSCREEN_ASKED && tg.isVersionAtLeast('8.0') && /android|ios/.test(tg.platform) &&
+      !tg.isFullscreen && tg.requestFullscreen());
     // иначе свайп вниз при перетаскивании карточек и прокрутке колёс закрывает приложение
     tgTry(() => tg.isVersionAtLeast('7.7') && tg.disableVerticalSwipes());
     tgTry(() => tg.isVersionAtLeast('6.1') && tg.setHeaderColor('#030912'));
@@ -1113,7 +1124,7 @@ function renderStats() {
   document.getElementById('st-total').textContent = db.done.length;
 }
 // «О приложении»: версия сборки (= VERSION в sw.js) и диагностика Telegram
-const BUILD = 'v8';
+const BUILD = 'v9';
 function aboutToast() {
   const tg = window.Telegram && Telegram.WebApp;
   let s = 'rock do · версия 1.1.0 (' + BUILD + ')';

@@ -1,6 +1,6 @@
 /* rock do — service worker: офлайн-работа и быстрые обновления.
    При изменении файлов приложения увеличивай VERSION — старый кэш удалится. */
-const VERSION = 'v8'; // то же значение — в BUILD в index.html
+const VERSION = 'v9'; // то же значение — в BUILD в index.html
 const CACHE = 'rockdo-' + VERSION;
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
@@ -23,14 +23,19 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
-  // страница — сначала сеть (чтобы обновления приходили сразу), без сети — из кэша
+  // страница — сразу из кэша (открытие не ждёт сеть), а свежая версия тихо скачивается в кэш
+  // и покажется при следующем открытии. Нет копии в кэше (самый первый запуск) — из сети.
   if (req.mode === 'navigate') {
-    e.respondWith(fetch(req)
-      .then((res) => {
-        if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put('index.html', copy)); }
+    e.respondWith(caches.open(CACHE).then(async (c) => {
+      const cached = await c.match('index.html');
+      // no-cache: сверить с GitHub, а не взять HTTP-кэш браузера (у GitHub он живёт 10 минут)
+      const fresh = fetch(req, { cache: 'no-cache' }).then((res) => {
+        if (res.ok) c.put('index.html', res.clone());
         return res;
-      })
-      .catch(() => caches.match('index.html')));
+      });
+      if (cached) { e.waitUntil(fresh.catch(() => {})); return cached; }
+      return fresh;
+    }));
     return;
   }
   // картинки и прочее — из кэша, с докачкой из сети
