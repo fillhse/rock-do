@@ -1,0 +1,1265 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>rock do</title>
+<meta name="theme-color" content="#030912" />
+<meta name="description" content="Дела, заметки и советы от Рокки" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" type="image/png" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<style>
+/* ===== rock do, тёмная тема по макету (автономное демо без backend) ===== */
+:root{
+  --bg1:#030912; --bg2:#07131c;
+  --card:rgba(255,255,255,.05); --card2:rgba(255,255,255,.08);
+  --accent:#4e20c8; --accent2:#6f38ff; --orange:#ffa42e;
+  --text:#eef0f6; --muted:#8b93a7; --radius:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{background:#0b0e16;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  display:flex;align-items:center;justify-content:center;color:var(--text);font-size:14px}
+/* рамка телефона, чтобы смотреть демо с десктопа */
+.phone{width:390px;height:780px;max-height:96vh;border-radius:34px;overflow:hidden;position:relative;
+  background:linear-gradient(180deg,var(--bg1),var(--bg2));
+  box-shadow:0 0 0 10px #11141f,0 30px 80px rgba(0,0,0,.7)}
+@media (max-width:430px){ .phone{width:100%;height:100%;max-height:none;border-radius:0;box-shadow:none} }
+
+.screen{position:absolute;inset:0;overflow-y:auto;padding:18px 16px 116px;display:none}
+.screen.on{display:block}
+h1{font-size:21px;margin-bottom:4px}
+.sub{color:var(--muted);font-size:12px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);
+  padding:13px 14px;margin-bottom:10px}
+
+/* задачи */
+.task,.note-card{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.drag-src{opacity:.25}
+
+/* корзина при переносе (по центру, на месте плюса) */
+.trash{position:absolute;left:0;right:0;bottom:26px;z-index:60;
+  display:flex;flex-direction:column;align-items:center;gap:12px;
+  opacity:0;pointer-events:none;transform:translateY(46px);transition:all .22s ease}
+.trash.show{opacity:1;transform:none}
+.trash-hint{color:var(--muted);font-size:12px;text-align:center;line-height:1.45;transition:opacity .15s}
+.trash-btn{width:66px;height:66px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;
+  background:radial-gradient(circle at 50% 32%,#ff5c6c,#c01430);
+  border:2px solid rgba(255,120,130,.6);
+  box-shadow:0 0 30px rgba(255,60,80,.45),0 8px 22px rgba(0,0,0,.4);transition:all .18s}
+.trash.hot .trash-btn{transform:scale(1.22);box-shadow:0 0 60px rgba(255,70,90,.8),0 8px 22px rgba(0,0,0,.4)}
+.trash.hot .trash-hint{opacity:0}
+.trash-btn svg{width:26px;height:26px}
+
+/* плашка отмены удаления */
+.snack{position:absolute;left:14px;right:14px;bottom:92px;z-index:55;
+  background:#131a2c;border:1px solid rgba(255,255,255,.08);border-radius:14px;
+  padding:14px 16px;display:flex;align-items:center;justify-content:space-between;
+  opacity:0;pointer-events:none;transform:translateY(16px);transition:all .2s ease}
+.snack.on{opacity:1;pointer-events:auto;transform:none}
+.snack button{background:none;border:none;color:var(--accent2);font-weight:600;font-size:14px;cursor:pointer}
+.task{display:flex;align-items:center;gap:12px;transition:opacity .4s,transform .4s}
+.task.done{opacity:0;transform:translateX(30px)}
+.task .tt{flex:1;min-width:0;cursor:pointer}
+.task .tt b{font-weight:500;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task .due{color:var(--orange);font-size:11px;flex:none;margin-left:auto;white-space:nowrap}
+.checkbox{width:22px;height:22px;flex:none;border:2px solid var(--accent2);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;cursor:pointer}
+.checkbox.on{background:var(--accent2)}
+.hit{padding:11px;margin:-11px}
+
+/* сделанные: удержание = в корзину, тап = меню */
+.done-h{color:var(--muted);font-size:12px;margin:20px 0 10px}
+.done-h b{color:var(--text)}
+.done-wrap{position:relative;margin-bottom:10px;
+  user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.done-wrap .done-card{margin-bottom:0}
+.done-card{display:flex;align-items:center;gap:12px;opacity:.62}
+.done-card.rep{opacity:.78;background:#131228 !important;border-color:rgba(111,56,255,.18)} /* повторы — чуть заметнее */
+.done-card .dt{flex:1;min-width:0}
+.done-card .dt b{font-weight:500;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.done-card .dt span{color:var(--muted);font-size:11px}
+.opt.danger{color:#ff6b6b}
+.ds-date{color:var(--muted);font-size:12px;margin:-6px 0 12px;white-space:pre-line;line-height:1.6}
+
+.hero{display:flex;gap:16px;align-items:center;margin-bottom:18px;min-height:142px;
+  padding:14px 18px;border-radius:18px;border:1px solid rgba(255,255,255,.06);
+  background:radial-gradient(circle at 24% 62%, rgba(111,56,255,.16), transparent 62%),
+             linear-gradient(135deg,#0c1224 0%,#170f38 100%)}
+.hero img{width:114px;height:auto;flex:none;filter:drop-shadow(0 10px 22px rgba(0,0,0,.45))}
+.hero .phrase{font-size:18px;font-weight:700;line-height:1.3}
+.hero .hint{color:var(--accent2);font-size:12px;line-height:1.4;margin-top:8px}
+.empty{text-align:center;padding:30px 20px;color:var(--muted)}
+.empty img{width:130px;margin-bottom:14px}
+
+.btn{display:block;width:100%;border:none;cursor:pointer;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;
+  font-size:15px;font-weight:600;padding:14px;border-radius:var(--radius);margin-top:8px}
+.btn:disabled{opacity:.45}
+.btn.dark{background:var(--card2)}
+.btn.small{width:auto;padding:8px 16px;font-size:13px;display:inline-block}
+
+/* нижняя навигация */
+.nav{position:absolute;left:0;right:0;bottom:0;height:76px;z-index:10;
+  background:rgba(5,11,20,.96);backdrop-filter:blur(14px);
+  border-top:1px solid rgba(255,255,255,.05);
+  display:flex;align-items:center;justify-content:space-around;padding:0 6px}
+.nav button{background:none;border:none;color:#6b7280;font-size:10px;letter-spacing:.02em;cursor:pointer;
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-height:48px;justify-content:center;
+  transition:color .15s}
+.nav button.active{color:var(--accent2)}
+.nav svg{width:23px;height:23px;transition:transform .12s}
+.nav button:active svg{transform:scale(.86)}
+.nav .plus{width:58px;height:58px;border-radius:50%;transform:translateY(-14px);
+  background:linear-gradient(160deg,#ffd44d,#ffb52e);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 26px rgba(255,200,70,.4),0 6px 16px rgba(0,0,0,.35);transition:transform .12s}
+.nav button:active .plus{transform:translateY(-14px) scale(.92)}
+.nav .plus svg{width:24px;height:24px;color:#1c1303}
+
+/* оверлеи */
+.overlay{position:absolute;inset:0;z-index:20;background:linear-gradient(180deg,var(--bg1),var(--bg2));
+  padding:20px 16px;overflow-y:auto;display:none;animation:up .22s ease}
+.overlay.on{display:block}
+@keyframes up{from{transform:translateY(30px);opacity:0}}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.close{background:var(--card2);border:none;color:var(--text);width:34px;height:34px;border-radius:50%;font-size:15px;cursor:pointer}
+.input{width:100%;background:var(--card);color:var(--text);border:1px solid rgba(255,255,255,.08);
+  border-radius:var(--radius);padding:14px;font-size:15px;margin-bottom:12px;outline:none}
+.input:focus{border-color:var(--accent2)}
+textarea.input{min-height:110px;resize:vertical;font-family:inherit}
+.row{display:flex;justify-content:space-between;align-items:center;background:var(--card);
+  border:1px solid rgba(255,255,255,.08);border-radius:var(--radius);padding:14px;margin-bottom:12px;cursor:pointer}
+.row .val,.chev{color:var(--muted)}
+.rockhint{display:flex;gap:12px;align-items:center;margin-top:18px}
+.rockhint img{width:56px}
+.rockhint span{color:var(--muted);font-size:12px;line-height:1.4}
+
+/* форма дела: поле крупнее, кнопки прижаты к низу */
+.nt{display:none;flex-direction:column}
+.nt.on{display:flex}
+/* компактное поле, как в исходном макете; растёт только под длинный текст */
+textarea.input.nt-title{min-height:0;height:auto;font-size:15px;line-height:1.45;
+  resize:none;overflow:hidden;margin-top:14px;padding-top:16px;padding-bottom:16px}
+.nt .rockhint{margin:30px 0 16px} /* камень с подсказкой — с воздухом под кнопками, как в макете */
+/* блоки формы дела — той же высоты, что в «Напоминании» */
+.nt .row{padding-top:17px;padding-bottom:17px}
+.nt .btn{padding-top:17px;padding-bottom:17px}
+
+/* пикер */
+.picker-title{text-align:center;font-size:19px;font-weight:600;margin:24px 0 16px}
+.wheels{display:flex;gap:8px}
+.wheel{flex:1;height:215px;overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none}
+.wheel::-webkit-scrollbar{display:none}
+.wheel .pad{height:86px}
+.wheel .item{height:43px;display:flex;align-items:center;justify-content:center;
+  scroll-snap-align:center;color:var(--muted);font-size:15px;cursor:pointer}
+.wheel .item.sel{color:#fff;background:rgba(111,56,255,.25);border-radius:10px;font-weight:600}
+.wlbl{text-align:center;color:var(--muted);font-size:11px;margin-bottom:6px}
+.btnrow{display:flex;gap:10px;margin-top:16px}
+.btnrow .btn{margin-top:0}
+
+/* заметки — плитка в 2 колонки (masonry, новые сверху слева) */
+#note-list{display:flex;gap:10px;align-items:flex-start}
+#note-list .ncol{flex:1;min-width:0}
+.note-card{display:block;width:100%;cursor:pointer;
+  background:var(--card);border:1px solid rgba(255,255,255,.06);
+  border-radius:var(--radius);padding:13px 14px;margin-bottom:10px;
+  transition:transform .12s,background .12s}
+.note-card:active{transform:scale(.97);background:var(--card2)}
+.note-title{color:var(--text);font-weight:600;font-size:14px;line-height:1.3;margin-bottom:6px;word-break:break-word;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.note-body{font-size:12px;color:var(--muted);line-height:1.45;white-space:pre-line;word-break:break-word;
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.note-date{color:#525d70;font-size:10px;margin-top:8px}
+
+/* полноэкранный редактор заметки */
+.ne{display:none;flex-direction:column}
+.ne.on{display:flex}
+.ne-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}
+.ne-actions{display:flex;gap:6px}
+.ne-ic{background:none;border:none;color:var(--text);font-size:21px;width:42px;height:42px;
+  border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.ne-ic:active{background:var(--card2)}
+.ne-ic:disabled{opacity:.3}
+.ne-ic.ok{color:var(--accent2);font-size:23px}
+.ne-title{background:none;border:none;outline:none;color:var(--text);
+  font-size:27px;font-weight:700;width:100%;margin-bottom:10px}
+.ne-title::placeholder{color:#3a4254}
+.ne-meta{color:#525d70;font-size:12px;margin-bottom:18px;display:flex;gap:10px;align-items:center}
+.ne-sep{opacity:.5}
+.ne-body{background:none;border:none;outline:none;color:var(--text);resize:none;
+  font-size:15px;line-height:1.55;flex:1;font-family:inherit;width:100%}
+.ne-body::placeholder{color:#3a4254}
+.quickbar{position:absolute;left:0;right:0;bottom:64px;padding:10px 16px;display:flex;gap:8px;
+  background:rgba(3,9,18,.92);backdrop-filter:blur(10px);z-index:9}
+.quickbar input{flex:1;margin-bottom:0}
+.quickbar button{width:48px;border:none;border-radius:12px;background:var(--accent2);color:#fff;font-size:22px;cursor:pointer}
+.quickbar button:disabled{opacity:.4}
+
+
+/* речка: фон-локация на весь экран, контент поверх */
+.screen.river{padding:0;overflow:hidden}
+.rv-bg{position:absolute;inset:0;background-size:cover;background-position:center;transition:background-image .3s}
+.rv-bg:after{content:'';position:absolute;inset:0;
+  background:linear-gradient(180deg,rgba(3,9,18,.84) 0%,rgba(3,9,18,.3) 18%,rgba(3,9,18,0) 34%,
+             rgba(3,9,18,.5) 55%,rgba(3,9,18,.88) 72%,rgba(3,9,18,.97) 100%)}
+.rv-top{position:absolute;top:0;left:0;right:0;padding:18px 16px 0;z-index:2}
+.rv-chip{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:9px 15px;border-radius:22px;
+  background:rgba(10,14,24,.55);backdrop-filter:blur(8px);
+  color:#ffd479;font-size:13px;font-weight:600}
+.rv-chip svg{width:16px;height:16px;display:block}
+.rv-bottom{position:absolute;left:0;right:0;bottom:96px;padding:0 16px;z-index:2}
+.rv-title{font-size:27px;font-weight:700;margin-bottom:8px;text-shadow:0 2px 14px rgba(0,0,0,.65)}
+.rv-text{font-size:15px;line-height:1.55;color:#e8ebf4;white-space:pre-line;margin-bottom:18px;
+  text-shadow:0 1px 10px rgba(0,0,0,.7)}
+.rv-btn{display:flex;align-items:center;justify-content:center;gap:10px;margin:0;
+  padding:17px;font-size:17px;border-radius:18px}
+.rv-btn img{width:24px;height:auto}
+
+/* профиль */
+.p-hero{text-align:center;padding:6px 0 18px}
+.p-hero img{width:150px}
+.p-name{font-size:26px;font-weight:700;margin-top:10px}
+.p-sub{color:var(--muted);font-size:13px;line-height:1.45;margin-top:8px;padding:0 26px}
+.p-label{font-size:15px;font-weight:600;margin:4px 0 10px}
+.setting{display:flex;align-items:center;gap:13px;padding:13px 2px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer;min-height:48px}
+.setting:last-child{border-bottom:none}
+.setting svg{width:20px;height:20px;color:var(--accent2);flex:none}
+.setting .name{flex:1;font-size:14px}
+.setting .name .sub2{display:block;color:var(--muted);font-size:11px;margin-top:2px;font-weight:400}
+.setting .val{color:var(--muted);font-size:13px}
+/* гора сделанного */
+.mnt-card{position:relative;overflow:hidden;padding:16px 14px;min-height:118px}
+.mnt-title{font-size:15px;font-weight:600;margin-bottom:14px}
+.mnt-stats{display:flex;width:64%}
+.mstat{flex:1;border-right:1px solid rgba(255,255,255,.07);padding-right:8px;margin-right:8px}
+.mstat:last-child{border-right:none}
+.mstat span{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
+.mstat b{font-size:23px;color:var(--accent2)}
+.mnt-img{position:absolute;right:-12px;bottom:-8px;width:44%;pointer-events:none}
+/* карточка Telegram */
+.tg-card{display:flex;align-items:center;gap:12px;padding:14px}
+.tg-ic{width:48px;height:48px;border-radius:50%;background:#5b2fd1;flex:none;display:flex;align-items:center;justify-content:center}
+.tg-ic svg{width:22px;height:22px;color:#fff}
+.tg-tx{flex:1;min-width:0}
+.tg-tx b{font-size:15px}
+.tg-tx span{display:block;color:var(--muted);font-size:11.5px;line-height:1.4;margin-top:3px}
+.tg-card .btn.small{margin-top:0}
+
+/* toast */
+.toast{position:absolute;left:50%;bottom:102px;transform:translateX(-50%);z-index:50;
+  background:#1d1633;border:1px solid var(--accent);padding:10px 18px;border-radius:12px;
+  font-size:13px;display:none;align-items:center;gap:10px;animation:up .2s ease;
+  width:max-content;max-width:calc(100% - 32px);line-height:1.4}
+.toast.on{display:flex}
+.toast img{width:30px}
+
+.modal-back{position:absolute;inset:0;background:rgba(0,0,0,.6);z-index:30;display:none;align-items:flex-end}
+.modal-back.on{display:flex}
+.modal{background:var(--bg2);border-radius:18px 18px 0 0;padding:20px 16px 28px;width:100%;animation:up .2s ease}
+.modal h2{font-size:17px;margin-bottom:12px}
+.modal .opt{padding:13px;border-radius:10px;cursor:pointer}
+.modal .opt.sel{background:rgba(111,56,255,.25);color:#fff}
+.days-row{display:flex;gap:8px;margin:10px 0 6px;justify-content:space-between}
+.day-chip{width:40px;height:40px;border-radius:50%;border:1.5px solid rgba(255,255,255,.16);
+  display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);
+  cursor:pointer;transition:all .12s}
+.day-chip.sel{background:var(--accent2);border-color:var(--accent2);color:#fff}
+.demo-note{position:fixed;top:8px;left:0;right:0;text-align:center;color:#566;font-size:11px}
+@media (display-mode:standalone){ .demo-note{display:none} }
+</style>
+</head>
+<body>
+<div class="demo-note">данные хранятся только на этом устройстве</div>
+<div class="phone" id="phone">
+
+  <!-- ЭКРАН 1: Камень -->
+  <div class="screen on" id="s-rock">
+    <div class="hero">
+      <img src="rock-neutral.png" alt="rock">
+      <div>
+        <div class="phrase">Маленький шаг сегодня — большая гора завтра.</div>
+        <div class="hint">Новые советы + Напоминания в Telegram</div>
+      </div>
+    </div>
+    <div class="sub" style="margin-bottom:10px">Мои дела <b style="color:var(--text)" id="task-count">0</b></div>
+    <div id="task-list"></div>
+    <div id="done-sec"></div>
+  </div>
+
+  <!-- ЭКРАН 2: Заметки -->
+  <div class="screen" id="s-notes">
+    <h1>Камушки</h1>
+    <div class="sub">Простое место для мыслей и идей</div>
+    <div id="note-list"></div>
+  </div>
+
+  <!-- ЭКРАН 5: Речка (локация Рокки меняется по времени суток) -->
+  <div class="screen river" id="s-river">
+    <div class="rv-bg" id="rv-bg"></div>
+    <div class="rv-top">
+      <h1>Речка</h1>
+      <div class="sub">Рокки подскажет, куда направить день</div>
+      <div class="rv-chip"><span id="rv-ico"></span><span id="rv-chip-text"></span></div>
+    </div>
+    <div class="rv-bottom">
+      <div class="rv-title" id="rv-title"></div>
+      <div class="rv-text" id="rv-text"></div>
+      <button class="btn rv-btn" id="throw-btn" onclick="throwStone()">
+        <img src="pebble.png" alt=""><span>Бросить камушек</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ЭКРАН 6: Профиль -->
+  <div class="screen" id="s-profile">
+    <h1>Профиль</h1>
+    <div class="p-hero">
+      <img src="rock-happy.png" alt="Рокки">
+      <div class="p-name">Рокки</div>
+      <div class="p-sub">Твой помощник, который помогает держать фокус на важном</div>
+    </div>
+    <div class="p-label">Настройки</div>
+    <div class="card">
+      <div class="setting" onclick="toast('Тёмная тема — базовая. Другие темы появятся в Pro.')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M20 13A8 8 0 1 1 11 4a6.5 6.5 0 0 0 9 9Z"/></svg>
+        <span class="name">Тема интерфейса</span><span class="val">Тёмная</span><span class="chev">›</span></div>
+      <div class="setting" onclick="toast('В демо уведомления не работают — нужен бот.')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16v-5a6 6 0 1 1 12 0v5l1.5 2.5H4.5Z"/><path d="M10 21h4"/></svg>
+        <span class="name">Уведомления</span><span class="val">Вкл.</span><span class="chev">›</span></div>
+      <div class="setting" onclick="toast('Пока доступен русский.')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><ellipse cx="12" cy="12" rx="3.8" ry="8.5"/></svg>
+        <span class="name">Язык</span><span class="val">Русский</span><span class="chev">›</span></div>
+      <div class="setting" onclick="toast('Часовой пояс определяется автоматически.')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s-6.5-5.6-6.5-10.5a6.5 6.5 0 1 1 13 0C18.5 15.4 12 21 12 21Z"/><circle cx="12" cy="10.5" r="2.2"/></svg>
+        <span class="name">Часовой пояс</span><span class="val" id="tz-val"></span><span class="chev">›</span></div>
+    </div>
+    <div class="card mnt-card">
+      <div class="mnt-title">Гора сделанного</div>
+      <div class="mnt-stats">
+        <div class="mstat"><span>Сегодня</span><b id="st-today">0</b></div>
+        <div class="mstat"><span>Неделя</span><b id="st-week">0</b></div>
+        <div class="mstat"><span>Всего</span><b id="st-total">0</b></div>
+      </div>
+      <img class="mnt-img" src="mountain.png" alt="">
+    </div>
+    <div class="card tg-card">
+      <span class="tg-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.6 4.4 2.9 11.6c-.8.3-.8 1.4 0 1.7l4.6 1.5 1.8 5.5c.2.7 1.1.9 1.6.3l2.5-2.9 4.7 3.4c.6.4 1.4.1 1.6-.6l3-14.9c.2-.8-.6-1.5-1.4-1.2ZM8.5 14.5l9-6.8c.3-.2.6.2.3.4l-7.3 7-.3 3-1.7-3.6Z"/></svg></span>
+      <div class="tg-tx"><b>Рокки в Telegram</b><span>Советы дня, новости и спокойные напоминания</span></div>
+      <button class="btn small" onclick="toast('Канал Рокки скоро появится!')">Подписаться</button>
+    </div>
+    <div class="card">
+      <div class="setting" onclick="toast('Поддержка скоро. Пока пиши прямо боту.')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.4 2.6c-.7.3-1 .8-1 1.6"/><circle cx="12" cy="16.6" r=".4" fill="currentColor"/></svg>
+        <span class="name">Помощь и поддержка<span class="sub2">Ответы на вопросы и связь с нами</span></span><span class="chev">›</span></div>
+      <div class="setting" onclick="toast('rock do · версия 1.1.0')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5"/><circle cx="12" cy="8" r=".4" fill="currentColor"/></svg>
+        <span class="name">О приложении<span class="sub2">Условия, политика и версия</span></span><span class="val">версия 1.1.0</span><span class="chev">›</span></div>
+    </div>
+  </div>
+
+  <!-- ЭКРАН 3: Новое дело / редактирование -->
+  <div class="overlay nt" id="o-task">
+    <div class="top"><h1 id="te-title">Новое дело</h1><button class="close" onclick="closeOverlay('o-task')">✕</button></div>
+    <textarea class="input nt-title" id="t-title" maxlength="120" rows="1" placeholder="Что нужно сделать?"
+              oninput="saveBtn.disabled=!this.value.trim();autoGrow(this)"
+              onkeydown="if(event.key==='Enter')event.preventDefault()"></textarea>
+    <div class="row" onclick="openPicker()"><span>Когда сделать?</span><span class="val"><span id="t-due-label">Без срока</span> <span class="chev">›</span></span></div>
+    <button class="btn" id="saveBtn" disabled onclick="saveTask()">Положить</button>
+    <button class="btn dark" onclick="closeOverlay('o-task')">Отмена</button>
+    <div class="rockhint"><img src="rock-neutral.png" alt=""><span>Камень рядом и напомнит<br>в нужный момент</span></div>
+    <button class="btn dark" id="delBtn" style="display:none" onclick="deleteTask()">Удалить дело</button>
+  </div>
+
+  <!-- ЭКРАН 4: Напоминание -->
+  <div class="overlay" id="o-picker">
+    <div class="top"><h1>Напоминание</h1><button class="close" onclick="cancelPicker()">✕</button></div>
+    <div class="picker-title" id="p-summary"></div>
+    <div class="wheels">
+      <div style="flex:1.4"><div class="wlbl">Дата</div><div class="wheel" id="w-day"></div></div>
+      <div style="flex:1"><div class="wlbl">Час</div><div class="wheel" id="w-hour"></div></div>
+      <div style="flex:1"><div class="wlbl">Минуты</div><div class="wheel" id="w-min"></div></div>
+    </div>
+    <div class="row" onclick="repModal.classList.add('on')"><span>Повтор</span><span class="val"><span id="p-rep-label">Никогда</span> <span class="chev">›</span></span></div>
+    <div class="btnrow">
+      <button class="btn dark" onclick="pickNoDue()">Без срока</button>
+      <button class="btn" onclick="pickOk()">OK</button>
+    </div>
+  </div>
+
+  <!-- полноэкранный редактор заметки -->
+  <div class="overlay ne" id="o-note">
+    <div class="ne-top">
+      <button class="ne-ic" onclick="closeOverlay('o-note')" title="Выйти без сохранения">←</button>
+      <div class="ne-actions">
+        <button class="ne-ic" id="undoBtn" onclick="neUndo()" title="Отменить">↶</button>
+        <button class="ne-ic" id="redoBtn" onclick="neRedo()" title="Вернуть">↷</button>
+        <button class="ne-ic ok" onclick="saveNote()" title="Сохранить">✓</button>
+      </div>
+    </div>
+    <input class="ne-title" id="n-title" placeholder="Заголовок" oninput="histPush()">
+    <div class="ne-meta"><span id="ne-date"></span><span class="ne-sep">|</span><span id="ne-count">0 символов</span></div>
+    <textarea class="ne-body" id="n-body" placeholder="Начните ввод" oninput="neCount();histPush()"></textarea>
+  </div>
+
+  <!-- модалки -->
+  <div class="modal-back" id="repModal" onclick="if(event.target===this)this.classList.remove('on')">
+    <div class="modal">
+      <h2>Повтор</h2>
+      <div id="rep-opts"></div>
+      <div class="p-label" style="margin-top:14px">Свои дни</div>
+      <div class="days-row" id="days-row"></div>
+      <button class="btn" onclick="repModal.classList.remove('on')">Готово</button>
+    </div>
+  </div>
+
+  <!-- корзина (появляется при удержании карточки) -->
+  <div class="trash" id="trash">
+    <div class="trash-hint">Перетащи сюда,<br>чтобы удалить</div>
+    <div class="trash-btn" id="trashBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9.5 7V5h5v2M6.5 7l1 13h9l1-13"/><path d="M10 11.5v6M14 11.5v6"/></svg>
+    </div>
+  </div>
+
+  <!-- меню сделанной задачи -->
+  <div class="modal-back" id="doneSheet" onclick="if(event.target===this)this.classList.remove('on')">
+    <div class="modal">
+      <h2 id="ds-title"></h2>
+      <div class="ds-date" id="ds-date"></div>
+      <div class="opt" id="ds-restore" onclick="dsRestore()">↩ Вернуть на камень</div>
+      <div class="opt danger" onclick="dsDelete()">Удалить из истории</div>
+    </div>
+  </div>
+
+  <!-- плашка отмены удаления -->
+  <div class="snack" id="snack">
+    <span id="snack-text"></span>
+    <button onclick="snackUndo()">Отменить</button>
+  </div>
+
+  <!-- навигация -->
+  <nav class="nav">
+    <button data-s="rock" class="active" onclick="go('rock')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M11.7 19.5 8.1 19.2 4.7 18.2 3.1 16.3 2.5 13.5 6.7 7.1 11.6 4.8 12.7 4.5 15.5 5.5 17.3 7.0 19.7 9.6 21.5 13.1 20.3 16.2 19.3 17.5 17.4 17.8 14.9 19.2Z"/><path d="M6.9 8.1 4.0 11.8 2.9 14.0M15.2 6.2 15.1 5.9 13.8 5.4 12.1 5.1 7.5 7.3 6.9 8.0M12.1 8.9 10.8 8.1 6.9 8.1M12.1 8.9 13.8 6.7 15.2 6.4M16.1 15.0 16.8 14.0M16.1 15.0 12.3 15.9M16.1 15.0 17.4 17.2M12.1 9.0 11.1 10.9 8.3 13.2 7.5 15.3M20.8 13.1 20.5 14.7 19.5 16.6 18.6 17.0 17.4 17.2M12.3 15.9 7.5 15.3M16.8 14.0 12.3 9.0M16.8 14.0 20.8 13.1M15.4 6.4 16.2 6.8 19.0 9.6 20.6 12.1 20.8 13.1M2.9 14.1 3.4 15.9 4.0 16.8 5.3 17.9 7.3 18.5M11.0 18.9 14.6 18.6 17.4 17.2M3.1 14.0 7.3 15.3M7.3 18.4 7.3 15.3M12.3 15.9 11.0 18.9M7.3 18.5 10.8 18.9"/></svg>
+      Камень</button>
+    <button data-s="notes" onclick="go('notes')">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path transform="translate(-4.653 30.265) scale(0.00546 -0.00546)" d="M2365 4639 c-249 -33 -497 -177 -667 -388 -176 -218 -300 -479 -360 -755 -32 -148 -32 -423 0 -550 71 -282 267 -524 532 -656 104 -52 182 -78 313 -104 265 -53 525 -42 833 35 l81 20 39 -26 c285 -195 783 -240 1152 -105 197 73 364 205 440 348 107 202 84 445 -62 672 -157 242 -393 385 -649 393 l-72 2 -50 95 c-204 388 -534 717 -902 899 -211 105 -431 147 -628 120z m324 -220 c329 -84 732 -408 958 -769 45 -74 83 -145 83 -158 0 -5 -28 -19 -62 -32 -83 -29 -213 -99 -312 -168 -98 -68 -288 -255 -341 -336 -109 -168 -136 -329 -81 -486 9 -25 16 -48 16 -51 0 -10 -132 -37 -244 -50 -59 -7 -167 -9 -265 -6 -198 6 -314 32 -459 102 -115 55 -165 89 -238 163 -162 161 -245 388 -230 630 19 330 159 667 371 900 224 244 507 336 804 261z m1472 -1123 c200 -69 379 -278 424 -493 59 -283 -203 -514 -641 -564 -206 -23 -449 17 -630 103 -261 125 -278 364 -43 612 171 181 424 332 611 366 77 13 202 3 279 -24z"/></svg>
+      Камушки</button>
+    <button onclick="plusAction()" aria-label="Добавить">
+      <span class="plus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+    </button>
+    <button data-s="river" onclick="go('river')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 7.5c2.5-2.3 5-2.3 7.5 0s5 2.3 7.5 0"/><path d="M3 12.5c2.5-2.3 5-2.3 7.5 0s5 2.3 7.5 0"/><path d="M3 17.5c2.5-2.3 5-2.3 7.5 0s5 2.3 7.5 0"/></svg>
+      Речка</button>
+    <button data-s="profile" onclick="go('profile')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 19.5c1.2-3.8 4-5.5 6.5-5.5s5.3 1.7 6.5 5.5"/></svg>
+      Профиль</button>
+  </nav>
+
+  <div class="toast" id="toastEl"><img src="rock-happy.png" id="toast-img" style="display:none"><span id="toast-text"></span></div>
+</div>
+
+<script>
+/* ================= данные (localStorage вместо backend) ================= */
+const LS = 'rockdo-demo';
+const seed = {
+  tasks: [
+    { id: 1, title: 'Прочитать 20 страниц', due: todayAt(19, 0), rep: 'never' },
+    { id: 2, title: 'Тренировка', due: todayAt(19, 0), rep: 'daily' },
+    { id: 3, title: 'Позвонить маме', due: null, rep: 'never' },
+    { id: 4, title: 'Учить английский 15 мин', due: tomorrowAt(10, 0), rep: 'never' },
+  ],
+  notes: [
+    { id: 1, title: 'Идея для проекта', body: 'Сервис, который помогает людям сохранять фокус на важном...', at: Date.now() - 3600e3 },
+    { id: 2, title: 'Цитата', body: 'Дисциплина — это мост между целями и достижениями.', at: Date.now() - 86400e3 },
+  ],
+  done: [], river: null, nextId: 100,
+};
+// хранилище может быть недоступно (приватный режим, превью) — тогда работаем в памяти
+let db;
+try { db = JSON.parse(localStorage.getItem(LS) || 'null') || seed; } catch (e) { db = seed; }
+const save = () => { try { localStorage.setItem(LS, JSON.stringify(db)); } catch (e) {} };
+// миграция: поле pos (ручной порядок); новые элементы получают min(pos)-1 — встают сверху
+if (db.tasks.some((t) => t.pos === undefined)) db.tasks.forEach((t) => t.pos = -t.id);
+if (db.notes.some((n) => n.pos === undefined)) db.notes.forEach((n) => n.pos = -n.at);
+// миграция: completed -> done (старые записи без названия учитываются только в статистике)
+db.done = db.done || [];
+if (db.completed) { db.done.push(...db.completed.map((c) => ({ at: c.at, title: null }))); delete db.completed; }
+const nextPos = (arr) => arr.length ? Math.min(...arr.map((x) => x.pos)) - 1 : 0;
+// гид-заметка от Рокки (добавляется один раз, в конец списка)
+if (!db.guideNote) {
+  db.guideNote = true;
+  db.notes.push({
+    id: db.nextId++,
+    title: 'Как устроен rock do',
+    body: 'Привет! Я Рокки. Вот как тут всё устроено.\n\nКАМЕНЬ — твои дела. Жёлтый плюс создаёт дело, тап по кружку — сделано, тап по карточке — редактор. Удержи карточку, чтобы переставить её или бросить в корзину.\n\nПовторы работают как будильник: выбери дни (например Пн, Ср, Пт) — после выполнения дело уйдёт в «Сделанные» и само вернётся в нужный день. О сроках напомню в Telegram.\n\nСДЕЛАННЫЕ живут под списком дел. Тап по записи — меню: вернуть на камень или удалить из истории.\n\nКАМУШКИ — заметки вроде этой. Первая строка станет заголовком. В редакторе есть отмена и возврат. Удержи камушек и наведи на другой — они поменяются местами.\n\nРЕЧКА — раз в день брось камушек и получи историю-совет. Я перебираюсь по реке утром, днём и ночью — заходи посмотреть.\n\nПРОФИЛЬ — настройки и Гора сделанного: сегодня, неделя, всего.\n\nМаленький шаг сегодня — большая гора завтра.',
+    at: Date.now() - 2 * 86400e3,
+    pos: (db.notes.length ? Math.max(...db.notes.map((n) => n.pos)) : 0) + 1,
+  });
+  save();
+}
+// порядок стартовых камушков: Цитата, Идея, гид (разовая миграция)
+if (!db.seedOrder) {
+  db.seedOrder = true;
+  const byId = (id) => db.notes.find((n) => n.id === id);
+  if (byId(2)) byId(2).pos = -3; // Цитата
+  if (byId(1)) byId(1).pos = -2; // Идея для проекта
+  const g = db.notes.find((n) => n.title === 'Как устроен rock do');
+  if (g) g.pos = -1;
+  save();
+}
+
+function todayAt(h, m) { const d = new Date(); d.setHours(h, m, 0, 0); return d.getTime(); }
+function tomorrowAt(h, m) { return todayAt(h, m) + 86400e3; }
+
+/* советы-истории Рокки (многострочные) */
+const ADVICES = [
+  'Рокки увидел лёгкую задачу.\nЗадача блестела как мокрый камень.\nРокки ткнул палкой. Внутри был дракон.\nТеперь Рокки сначала смотрит, потом обещает.',
+  'Рокки нёс десять камушков сразу.\nДонёс ноль.\nПотом нёс по одному — донёс все.\nСегодня неси по одному.',
+  'Рокки спорил с рекой, куда ей течь.\nРека не заметила.\nРокки сел и поплыл по течению.\nОказалось — туда и надо было.',
+  'Рокки откладывал большое дело.\nДело выросло и стало валуном.\nРокки отколол кусочек — и валун треснул.\nНачни с кусочка.',
+  'Рокки ждал идеального момента.\nМимо прошли утро, день и вечер.\nИдеальный момент не пришёл.\nПришлось начать в обычный. Сработало.',
+  'Рокки боялся холодной воды.\nЗашёл одной лапкой — терпимо.\nЗашёл целиком — даже приятно.\nСамое страшное — первые десять секунд.',
+  'Рокки считал чужие камушки.\nСбился. Расстроился.\nПосчитал свои — ровно столько, сколько нужно.\nСмотри в свою кучку.',
+  'Рокки хотел сделать всё сегодня.\nРека напомнила: она течёт каждый день.\nРокки сделал главное и лёг смотреть на облака.\nЗавтра река никуда не денется.',
+  'Рокки нашёл блестящую новую идею.\nСтарая идея обиделась и почти уплыла.\nРокки догнал её и доделал.\nСначала доделай — потом блести.',
+  'Рокки шёл в гору и ныл.\nОглянулся — половина пути позади.\nНыть стало неинтересно.\nОглядывайся почаще.',
+  'У Рокки не получилось с первого раза.\nИ со второго.\nНа третий раз камушек поскакал по воде.\nЭто называется тренировка, а не неудача.',
+  'Рокки заметил, что устал.\nСделал паузу на три вдоха.\nРека за это время не убежала.\nПауза — тоже часть пути.',
+];
+
+/* локации Рокки по времени суток */
+/* pos — точка фокуса фона: 'X% Y%' (0% — левый/верхний край, 100% — правый/нижний).
+   Подбирай на глаз: главное, чтобы Рокки попадал в видимую часть кадра. */
+const RIVER_SLOTS = [
+  { from: 5,  to: 10, name: 'Утро',         loc: 'Исток',   title: 'Рокки у истока',    mood: 'Начни с самого простого шага.',        img: 'river-morning', icon: 'sun',  pos: '38% 50%' },
+  { from: 10, to: 12, name: 'Позднее утро', loc: 'Тропа',   title: 'Рокки на тропе',    mood: 'Самое время разогнаться.',             img: 'river-late',    icon: 'sun',  pos: '60% 50%' },
+  { from: 12, to: 17, name: 'День',         loc: 'Перекат', title: 'Рокки на перекате', mood: 'Сейчас лучше держать направление.',    img: 'river-day',     icon: 'sun',  pos: '50% 40%' },
+  { from: 17, to: 22, name: 'Вечер',        loc: 'Берег',   title: 'Рокки на берегу',   mood: 'Заверши то, что почти готово.',        img: 'river-evening', icon: 'sun',  pos: '58% 55%' },
+  { from: 22, to: 5,  name: 'Ночь',         loc: 'Ночлег',  title: 'Рокки на ночлеге',  mood: 'Реку не торопят. Отдыхай.',            img: 'river-night',   icon: 'moon', pos: '25% 65%' },
+];
+const riverSlot = (h = new Date().getHours()) =>
+  RIVER_SLOTS.find((s) => s.from <= s.to ? (h >= s.from && h < s.to) : (h >= s.from || h < s.to));
+const SUN_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M18 6l-1.4 1.4M7.4 16.6 6 18"/></svg>';
+const MOON_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M20 13A8 8 0 1 1 11 4a6.5 6.5 0 0 0 9 9Z"/></svg>';
+/* повтор: never | daily | weekly | monthly | days:1,3,5 (ISO дни недели, 1=Пн) */
+const DAY_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+function repLabel(rule) {
+  if (!rule || rule === 'never') return 'Никогда';
+  if (rule === 'daily') return 'Каждый день';
+  if (rule === 'weekly') return 'Каждую неделю';
+  if (rule === 'monthly') return 'Каждый месяц';
+  if (rule.startsWith('days:')) {
+    const ds = rule.slice(5).split(',').map(Number).sort((a, b) => a - b);
+    if (ds.length === 7) return 'Каждый день';
+    return ds.map((d) => DAY_SHORT[d - 1]).join(', ');
+  }
+  return 'Никогда';
+}
+// следующее срабатывание после max(due, now), время суток сохраняется
+// mday — исходное число месяца для monthly (чтобы после февраля вернуться к 31-му)
+function nextOcc(dueMs, rule, nowMs, mday) {
+  const base = Math.max(dueMs, nowMs);
+  const next = new Date(dueMs);
+  if (rule.startsWith('days:')) {
+    const set = rule.slice(5).split(',').map(Number);
+    do { next.setDate(next.getDate() + 1); }
+    while (next.getTime() <= base || !set.includes(((next.getDay() + 6) % 7) + 1));
+    return next.getTime();
+  }
+  if (rule === 'monthly') { // от исходного числа: 31 янв -> 28/29 фев -> 31 мар
+    const day = mday || next.getDate();
+    for (let k = 1; next.getTime() <= base; k++) {
+      const d = new Date(dueMs); d.setDate(1); d.setMonth(d.getMonth() + k);
+      d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+      next.setTime(d.getTime());
+    }
+    return next.getTime();
+  }
+  while (next.getTime() <= base) next.setDate(next.getDate() + (rule === 'weekly' ? 7 : 1));
+  return next.getTime();
+}
+
+/* ================= навигация ================= */
+function go(s) {
+  document.querySelectorAll('.screen').forEach((e) => e.classList.remove('on'));
+  document.getElementById('s-' + s).classList.add('on');
+  document.querySelectorAll('.nav [data-s]').forEach((b) => b.classList.toggle('active', b.dataset.s === s));
+  current = s;
+  if (s === 'profile') renderStats();
+  if (s === 'river') renderRiver(); // локация может смениться по времени
+}
+let current = 'rock';
+function plusAction() {
+  // оранжевый «+»: на экране заметок — новая заметка, везде ещё — новая задача
+  if (current === 'notes') openNote(null);
+  else openTaskEditor();
+}
+function closeOverlay(id) { document.getElementById(id).classList.remove('on'); }
+
+/* ================= toast ================= */
+let toastTimer;
+/* happy: true — тост со счастливым Рокки, 'sad' — с грустным, пусто — без картинки */
+function toast(text, happy) {
+  const img = document.getElementById('toast-img');
+  img.src = happy === 'sad' ? 'rock-sad.png' : 'rock-happy.png';
+  clearTimeout(toastTimer);
+  document.getElementById('toast-text').textContent = text;
+  document.getElementById('toast-img').style.display = happy ? 'block' : 'none';
+  toastEl.classList.add('on');
+  toastTimer = setTimeout(() => toastEl.classList.remove('on'), 2600);
+}
+
+/* ================= задачи ================= */
+function fmtDue(due) {
+  if (!due) return 'Без срока';
+  const d = new Date(due), now = new Date();
+  const t = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  if (due < Date.now()) return 'пропущено';
+  if (d.toDateString() === now.toDateString()) return 'Сегодня ' + t;
+  const tm = new Date(now); tm.setDate(tm.getDate() + 1);
+  if (d.toDateString() === tm.toDateString()) return 'Завтра ' + t;
+  return d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' + t;
+}
+
+// выполненный повтор не висит в списке: вернётся в день следующего цикла
+const dueTodayOrPast = (due) => {
+  const d = new Date(due), n = new Date();
+  return due <= n.getTime() || d.toDateString() === n.toDateString();
+};
+function renderTasks() {
+  const list = document.getElementById('task-list');
+  const ts = [...db.tasks].sort((a, b) => a.pos - b.pos)
+    .filter((t) => !(t.rep && t.rep !== 'never' && t.due && !dueTodayOrPast(t.due)));
+  document.getElementById('task-count').textContent = ts.length;
+  if (!ts.length) {
+    list.innerHTML = `<div class="empty"><img src="rock-sleep.png"><div>Пока камень свободен.<br>Положи на него первое дело.</div></div>`;
+    renderDone();
+    return;
+  }
+  list.innerHTML = ts.map((t) => `
+    <div class="card task" id="task-${t.id}" onpointerdown="pressStart(event,${t.id},'task')" oncontextmenu="return false">
+      <div class="hit" onclick="if(!suppressClick)completeTask(${t.id})"><div class="checkbox" id="cb-${t.id}"></div></div>
+      <div class="tt" onclick="if(!suppressClick)openTaskEditor(${t.id})"><b></b></div>
+      ${t.due ? `<span class="due" onclick="if(!suppressClick)openTaskEditor(${t.id})">${fmtDue(t.due)}</span>` : ''}
+    </div>`).join('');
+  ts.forEach((t) => { document.querySelector(`#task-${t.id} b`).textContent = t.title; });
+  renderDone();
+}
+
+/* ===== сделанные: повторы сверху (чуть заметнее), вернуть / пересоздать ===== */
+function renderDone() {
+  const sec = document.getElementById('done-sec');
+  const all = db.done.filter((d) => d.title);
+  const items = all
+    .sort((a, b) => ((b.fromRepeat ? 1 : 0) - (a.fromRepeat ? 1 : 0)) || (b.at - a.at))
+    .slice(0, 30); // показываем последние 30, счётчик — полный
+  if (!items.length) { sec.innerHTML = ''; return; }
+  // в покое — никаких кнопок: удержание+корзина = удалить, тап = меню
+  sec.innerHTML = '<div class="done-h">Сделанные <b>' + all.length + '</b></div>' +
+    items.map((d) => {
+      const src = d.fromRepeat ? db.tasks.find((x) => x.id === d.taskId) : null;
+      const sub = d.fromRepeat
+        ? 'Следующая: ' + fmtDue(src ? src.due : d.prevDue)
+        : new Date(d.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      return `
+      <div class="done-wrap" id="done-${d.id}" onpointerdown="doneTouch(event,${d.id})" oncontextmenu="return false">
+        <div class="card done-card ${d.fromRepeat ? 'rep' : ''}">
+          <div class="checkbox on">✓</div>
+          <div class="dt"><b></b><span>${sub}</span></div>
+        </div>
+      </div>`;
+    }).join('');
+  sec.querySelectorAll('.done-card .dt b').forEach((el, i) => el.textContent = items[i].title);
+}
+
+function restoreDone(id) {
+  const d = db.done.find((x) => x.id === id);
+  if (!d) return;
+  if (d.fromRepeat) { // отмена сегодняшнего выполнения: срок откатывается
+    const src = db.tasks.find((x) => x.id === d.taskId);
+    if (src) src.due = d.prevDue;
+    else db.tasks.push({ id: db.nextId++, title: d.title, due: d.prevDue, rep: d.rep, pos: nextPos(db.tasks) });
+    db.done = db.done.filter((x) => x.id !== id);
+    toast('Выполнение отменено — задача снова на камне');
+  } else {
+    db.tasks.push({ id: db.nextId++, title: d.title, due: null, rep: 'never', pos: nextPos(db.tasks) });
+    db.done = db.done.filter((x) => x.id !== id);
+    toast('Задача вернулась на камень');
+  }
+  save(); renderTasks(); renderStats();
+}
+
+/* жесты сделанной карточки: удержание (в корзину) / тап (меню) */
+function doneTouch(e, id) {
+  if (e.button > 0) return;
+  const wrap = e.currentTarget;
+  const sx = e.clientX, sy = e.clientY;
+  const timer = setTimeout(() => { cleanup(); startDrag(wrap, id, 'done', sx, sy); }, 300);
+  const move = (ev) => { if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 10) cleanup(); }; // скролл
+  const up = (ev) => {
+    cleanup();
+    if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 8 && !suppressClick) openDoneSheet(id);
+  };
+  function cleanup() {
+    clearTimeout(timer);
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    document.removeEventListener('pointercancel', cleanup);
+  }
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', up);
+  document.addEventListener('pointercancel', cleanup);
+}
+
+/* bottom sheet по тапу */
+let dsId = null;
+function openDoneSheet(id) {
+  const d = db.done.find((x) => x.id === id);
+  if (!d) return;
+  dsId = id;
+  document.getElementById('ds-title').textContent = d.title;
+  let info = 'Сделано ' + new Date(d.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  if (d.fromRepeat) {
+    const src = db.tasks.find((x) => x.id === d.taskId);
+    info += '\nПовторяется: ' + repLabel(d.rep) +
+            '\nСледующая: ' + fmtDue(src ? src.due : d.prevDue);
+  }
+  document.getElementById('ds-date').textContent = info;
+  document.getElementById('ds-restore').textContent =
+    d.fromRepeat ? '↩ Вернуть это выполнение' : '↩ Вернуть на камень';
+  document.getElementById('doneSheet').classList.add('on');
+}
+function dsRestore() { restoreDone(dsId); doneSheet.classList.remove('on'); }
+function dsDelete() {
+  lastDeleted = { type: 'done', item: db.done.find((x) => x.id === dsId) };
+  db.done = db.done.filter((x) => x.id !== dsId);
+  save(); renderDone(); renderStats();
+  doneSheet.classList.remove('on');
+  showSnack('Удалено из истории');
+}
+
+function completeTask(id) {
+  const t = db.tasks.find((x) => x.id === id);
+  const card = document.getElementById('task-' + id);
+  if (!t || !card || card.classList.contains('done')) return; // двойной тап во время анимации
+  document.getElementById('cb-' + id).classList.add('on');
+  document.getElementById('cb-' + id).textContent = '✓';
+  document.getElementById('task-' + id).classList.add('done');
+  const repeating = t.rep && t.rep !== 'never' && t.due;
+  setTimeout(() => {
+    if (repeating) {
+      // сегодняшний раз засчитан; задача уходит ждать следующего цикла
+      db.done.push({ id: db.nextId++, title: t.title, at: Date.now(), fromRepeat: true,
+                     taskId: t.id, prevDue: t.due, rep: t.rep });
+      t.due = nextOcc(t.due, t.rep, Date.now(), t.mday);
+      toast('Сегодняшний раз засчитан! Следующая — ' + fmtDue(t.due) + '.', true);
+    } else {
+      db.done.push({ id: db.nextId++, title: t.title, at: Date.now(), fromRepeat: false });
+      db.tasks = db.tasks.filter((x) => x.id !== id);
+      toast('Готово! Камень гордится тобой.', true);
+    }
+    save(); renderTasks();
+  }, 400);
+}
+
+/* редактор дела */
+function autoGrow(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
+let editId = null, pickDue = null, pickRep = 'never';
+function openTaskEditor(id) {
+  editId = id || null;
+  const t = id ? db.tasks.find((x) => x.id === id) : null;
+  document.getElementById('te-title').textContent = t ? 'Дело' : 'Новое дело';
+  const ti = document.getElementById('t-title');
+  ti.value = t ? t.title : '';
+  requestAnimationFrame(() => autoGrow(ti));
+  pickDue = t ? t.due : null; pickRep = t ? t.rep : 'never';
+  updateDueLabel();
+  saveBtn.disabled = !t;
+  saveBtn.textContent = t ? 'Сохранить' : 'Положить';
+  delBtn.style.display = t ? 'block' : 'none';
+  document.getElementById('o-task').classList.add('on');
+  if (!t) setTimeout(() => document.getElementById('t-title').focus(), 250);
+}
+function updateDueLabel() {
+  document.getElementById('t-due-label').textContent =
+    (pickDue ? fmtDue(pickDue) : 'Без срока') + (pickRep !== 'never' ? ' · ' + repLabel(pickRep) : '');
+}
+function saveTask() {
+  const title = document.getElementById('t-title').value.trim().replace(/\s+/g, ' ');
+  if (!title) return;
+  if (!pickDue) pickRep = 'never'; // повтор без срока не имеет смысла
+  const mday = pickDue ? new Date(pickDue).getDate() : null;
+  if (editId) {
+    const t = db.tasks.find((x) => x.id === editId);
+    Object.assign(t, { title, due: pickDue, rep: pickRep, mday });
+    toast('Камень запомнил изменения');
+  } else {
+    db.tasks.push({ id: db.nextId++, title, due: pickDue, rep: pickRep, mday, pos: nextPos(db.tasks) });
+    toast('Камень запомнил. Дело на камне!');
+  }
+  save(); renderTasks(); closeOverlay('o-task'); go('rock');
+}
+function deleteTask() {
+  db.tasks = db.tasks.filter((x) => x.id !== editId);
+  save(); renderTasks(); closeOverlay('o-task');
+  toast('Дело убрано с камня');
+}
+
+/* ================= пикер напоминания ================= */
+const ITEM_H = 43;
+/* wrap=true: список закольцован — копий с запасом, перецентровка прямо во время
+   прокрутки прыжком на целый период (визуально кадр в кадр, стыка нет) */
+function wheelInit(el, items, selIdx, onSel, wrap) {
+  const len = items.length;
+  const REP = wrap ? Math.max(7, Math.ceil(900 / len) | 1) : 1; // нечётное, >=900 строк запаса
+  const mid = Math.floor(REP / 2);
+  const all = [];
+  for (let r = 0; r < REP; r++) all.push(...items);
+  el.innerHTML = '<div class="pad"></div>' +
+    all.map((x, i) => `<div class="item" data-i="${i}">${x}</div>`).join('') +
+    '<div class="pad"></div>';
+  const period = len * ITEM_H;
+  const apply = (gi) => {
+    const li = ((gi % len) + len) % len;
+    el.querySelectorAll('.item').forEach((e) => e.classList.toggle('sel', (+e.dataset.i) % len === li));
+    onSel(li);
+  };
+  el.onscroll = () => {
+    if (wrap) { // близко к краю копий — мгновенный прыжок на тот же кадр в середину
+      const st = el.scrollTop;
+      if (st < 2 * period || st > (REP - 2) * period)
+        el.scrollTop = mid * period + (st % period);
+    }
+    clearTimeout(el._t);
+    el._t = setTimeout(() => {
+      const gi = Math.max(0, Math.min(all.length - 1, Math.round(el.scrollTop / ITEM_H)));
+      apply(gi);
+    }, 90);
+  };
+  el.querySelectorAll('.item').forEach((e) => e.onclick = () => {
+    const gi = +e.dataset.i;
+    el.scrollTop = gi * ITEM_H;
+    apply(gi);
+  });
+  const start = mid * len + selIdx;
+  requestAnimationFrame(() => { el.scrollTop = start * ITEM_H; apply(start); });
+}
+const DAYS_PAST = 180, DAYS_FUT = 365; // даты листаются в обе стороны
+let pDay = 0, pHour = 10, pMin = 0, repBefore = 'never';
+function openPicker() {
+  repBefore = pickRep; // ✕ откатывает повтор, выбранный в этом пикере
+  const init = pickDue ? new Date(pickDue) : new Date(tomorrowAt(10, 0));
+  const days = [], today = new Date(); today.setHours(0, 0, 0, 0);
+  for (let i = -DAYS_PAST; i <= DAYS_FUT; i++) {
+    const d = new Date(today); d.setDate(d.getDate() + i);
+    days.push(i === 0 ? 'Сегодня' : d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }));
+  }
+  pDay = Math.max(-DAYS_PAST, Math.min(DAYS_FUT,
+    Math.round((new Date(init).setHours(0, 0, 0, 0) - today) / 86400e3)));
+  pHour = init.getHours(); pMin = init.getMinutes();
+  wheelInit(document.getElementById('w-day'), days, pDay + DAYS_PAST, (i) => { pDay = i - DAYS_PAST; pickerSummary(); });
+  wheelInit(document.getElementById('w-hour'), [...Array(24)].map((_, i) => String(i).padStart(2, '0')), pHour, (i) => { pHour = i; pickerSummary(); }, true);
+  wheelInit(document.getElementById('w-min'), [...Array(60)].map((_, i) => String(i).padStart(2, '0')), pMin, (i) => { pMin = i; pickerSummary(); }, true);
+  document.getElementById('p-rep-label').textContent = repLabel(pickRep);
+  renderRepOpts(); pickerSummary();
+  document.getElementById('o-picker').classList.add('on');
+}
+function pickerDate() {
+  const d = new Date(); d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + pDay); d.setHours(pHour, pMin);
+  return d;
+}
+function pickerSummary() {
+  const d = pickerDate();
+  document.getElementById('p-summary').textContent =
+    d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' +
+    String(pHour).padStart(2, '0') + ':' + String(pMin).padStart(2, '0');
+}
+function pickOk() {
+  let d = pickerDate();
+  if (d.getTime() <= Date.now()) { // не в прошлое — по спеке
+    d = new Date(Date.now() + 3600e3); d.setSeconds(0, 0);
+    toast('Это время уже прошло — выбрал ближайшее.');
+  }
+  if (pickRep.startsWith('days:')) { // первый раз — в ближайший из выбранных дней
+    const set = pickRep.slice(5).split(',').map(Number);
+    while (!set.includes(((d.getDay() + 6) % 7) + 1)) d.setDate(d.getDate() + 1);
+  }
+  pickDue = d.getTime(); updateDueLabel(); closeOverlay('o-picker');
+}
+function cancelPicker() { pickRep = repBefore; closeOverlay('o-picker'); }
+function pickNoDue() { pickDue = null; pickRep = 'never'; updateDueLabel(); closeOverlay('o-picker'); }
+function renderRepOpts() {
+  const opts = { never: 'Никогда', daily: 'Каждый день', weekly: 'Каждую неделю', monthly: 'Каждый месяц' };
+  document.getElementById('rep-opts').innerHTML = Object.entries(opts).map(([v, l]) =>
+    `<div class="opt ${v === pickRep ? 'sel' : ''}" onclick="setRep('${v}')">${l}</div>`).join('');
+  // чипы дней недели (как будильник)
+  const cur = pickRep.startsWith('days:') ? pickRep.slice(5).split(',').map(Number) : [];
+  document.getElementById('days-row').innerHTML = DAY_SHORT.map((n, i) =>
+    `<div class="day-chip ${cur.includes(i + 1) ? 'sel' : ''}" onclick="toggleDay(${i + 1})">${n}</div>`).join('');
+}
+function setRep(v) {
+  pickRep = v;
+  document.getElementById('p-rep-label').textContent = repLabel(v);
+  renderRepOpts();
+  repModal.classList.remove('on');
+}
+function toggleDay(d) {
+  let cur = pickRep.startsWith('days:') ? pickRep.slice(5).split(',').map(Number) : [];
+  cur = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => a - b);
+  pickRep = cur.length ? 'days:' + cur.join(',') : 'never';
+  document.getElementById('p-rep-label').textContent = repLabel(pickRep);
+  renderRepOpts();
+}
+
+/* ================= заметки ================= */
+// оценка высоты карточки (границы: заголовок <=2 строк, превью <=4)
+function estH(title, preview) {
+  const tl = Math.min(2, Math.ceil(title.length / 20));
+  const pl = preview ? Math.min(4, Math.ceil(preview.length / 26)) : 0;
+  return 46 + tl * 19 + pl * 18;
+}
+function renderNotes() {
+  const list = document.getElementById('note-list');
+  const ns = [...db.notes].sort((a, b) => a.pos - b.pos); // ручной порядок, новые сверху
+  if (!ns.length) {
+    list.innerHTML = '<div class="empty"><img src="rock-notes.png" alt=""><div>Запиши первую мысль — нажми «+».</div></div>';
+    return;
+  }
+  list.innerHTML = '<div class="ncol"></div><div class="ncol"></div>';
+  const cols = list.querySelectorAll('.ncol');
+  const h = [0, 0];
+  ns.forEach((n) => {
+    // не дублируем: если тело начинается с заголовка — показываем только остаток
+    // не дублируем: сравниваем без «…» на конце автозаголовка
+    let preview = n.body || '';
+    const t0 = n.title.replace(/…$/, '');
+    if (preview.startsWith(t0)) preview = preview.slice(t0.length).replace(/^[\s.…]+/, '');
+    const c = document.createElement('div');
+    c.className = 'note-card'; c.id = 'note-' + n.id;
+    c.onclick = () => { if (!suppressClick) openNote(n.id); };
+    c.onpointerdown = (e) => pressStart(e, n.id, 'note');
+    c.oncontextmenu = (e) => e.preventDefault();
+    c.innerHTML = `<div class="note-title"></div>${preview ? '<div class="note-body"></div>' : ''}
+      <div class="note-date">${new Date(n.at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>`;
+    c.querySelector('.note-title').textContent = n.title;
+    if (preview) c.querySelector('.note-body').textContent = preview;
+    const i = h[0] <= h[1] ? 0 : 1; // в более короткую колонку
+    cols[i].appendChild(c);
+    h[i] += estH(n.title, preview);
+  });
+}
+/* --- полноэкранный редактор с undo/redo --- */
+let noteId = null;               // null = новая заметка
+let hist = [], histIdx = -1, histTimer = null;
+const nTitle = () => document.getElementById('n-title');
+const nBody = () => document.getElementById('n-body');
+
+const plural = (n, f) => f[n % 10 === 1 && n % 100 !== 11 ? 0 : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 1 : 2)];
+function neCount() {
+  const n = nBody().value.length;
+  document.getElementById('ne-count').textContent = n + ' ' + plural(n, ['символ', 'символа', 'символов']);
+}
+function histPush() {
+  clearTimeout(histTimer);
+  histTimer = setTimeout(() => {
+    const s = { t: nTitle().value, b: nBody().value };
+    const last = hist[histIdx];
+    if (last && last.t === s.t && last.b === s.b) return;
+    hist = hist.slice(0, histIdx + 1); hist.push(s); histIdx++;
+    histBtns();
+  }, 280);
+}
+function histApply() {
+  const s = hist[histIdx];
+  nTitle().value = s.t; nBody().value = s.b;
+  neCount(); histBtns();
+}
+function neUndo() { if (histIdx > 0) { histIdx--; histApply(); } }
+function neRedo() { if (histIdx < hist.length - 1) { histIdx++; histApply(); } }
+function histBtns() {
+  document.getElementById('undoBtn').disabled = histIdx <= 0;
+  document.getElementById('redoBtn').disabled = histIdx >= hist.length - 1;
+}
+
+function openNote(id) {
+  noteId = id || null;
+  const n = id ? db.notes.find((x) => x.id === id) : null;
+  nTitle().value = n ? n.title : '';
+  nBody().value = n ? n.body : '';
+  document.getElementById('ne-date').textContent = new Date(n ? n.at : Date.now())
+    .toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  hist = [{ t: nTitle().value, b: nBody().value }]; histIdx = 0;
+  neCount(); histBtns();
+  document.getElementById('o-note').classList.add('on');
+  if (!n) setTimeout(() => nTitle().focus(), 250);
+}
+function saveNote() {
+  let title = nTitle().value.trim();
+  const body = nBody().value.trim();
+  if (!title && !body) { closeOverlay('o-note'); return; } // пустую не сохраняем
+  if (!title) { // автозаголовок из первой строки
+    const first = body.split('\n')[0].trim();
+    title = first.length > 40 ? first.slice(0, 40) + '…' : first;
+  }
+  if (noteId) {
+    const n = db.notes.find((x) => x.id === noteId);
+    Object.assign(n, { title, body });
+  } else {
+    db.notes.push({ id: db.nextId++, title, body, at: Date.now(), pos: nextPos(db.notes) });
+  }
+  save(); renderNotes(); closeOverlay('o-note');
+}
+
+/* ================= речка ================= */
+function localDay() { return new Date().toLocaleDateString('sv'); }
+function renderRiver() {
+  const slot = riverSlot();
+  document.getElementById('rv-bg').style.backgroundImage = `url('${slot.img}.jpg')`;
+  document.getElementById('rv-bg').style.backgroundPosition = slot.pos || 'center';
+  document.getElementById('rv-ico').innerHTML = slot.icon === 'moon' ? MOON_ICO : SUN_ICO;
+  document.getElementById('rv-chip-text').textContent = slot.name + ' • ' + slot.loc;
+  document.getElementById('rv-title').textContent = slot.title;
+  const r = db.river;
+  const today = r && r.date === localDay();
+  // до броска — настроение локации, после — история дня
+  document.getElementById('rv-text').textContent = today ? r.text : slot.mood;
+  const btn = document.getElementById('throw-btn');
+  btn.disabled = today;
+  btn.querySelector('span').textContent = today ? 'Завтра новый бросок' : 'Бросить камушек';
+}
+function throwStone() {
+  const btn = document.getElementById('throw-btn');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.querySelector('span').textContent = 'Камушек летит...';
+  setTimeout(() => {
+    const prev = db.river ? db.river.text : null;
+    let text = ADVICES[Math.floor(Math.random() * ADVICES.length)];
+    if (text === prev) text = ADVICES[(ADVICES.indexOf(text) + 1) % ADVICES.length];
+    db.river = { date: localDay(), text };
+    save(); renderRiver();
+  }, 900);
+}
+
+/* ================= профиль ================= */
+function renderStats() {
+  const today = db.done.filter((c) => new Date(c.at).toDateString() === new Date().toDateString()).length;
+  const week = db.done.filter((c) => c.at >= Date.now() - 7 * 86400e3).length;
+  document.getElementById('st-today').textContent = today;
+  document.getElementById('st-week').textContent = week;
+  document.getElementById('st-total').textContent = db.done.length;
+}
+const tz = -new Date().getTimezoneOffset() / 60;
+document.getElementById('tz-val').textContent = `(UTC${tz >= 0 ? '+' : ''}${tz})`;
+
+/* ================= удержание -> перетаскивание ================= */
+let drag = null, suppressClick = false;
+
+/* --- отмена удаления --- */
+let lastDeleted = null, snackTimer = null;
+function showSnack(text) {
+  document.getElementById('snack-text').textContent = text;
+  document.getElementById('snack').classList.add('on');
+  clearTimeout(snackTimer);
+  snackTimer = setTimeout(hideSnack, 5000);
+}
+function hideSnack() {
+  document.getElementById('snack').classList.remove('on');
+  lastDeleted = null;
+}
+function snackUndo() {
+  if (!lastDeleted) return;
+  if (lastDeleted.type === 'task') { db.tasks.push(lastDeleted.item); renderTasks(); }
+  else if (lastDeleted.type === 'note') { db.notes.push(lastDeleted.item); renderNotes(); }
+  else { db.done.push(lastDeleted.item); renderDone(); renderStats(); }
+  save();
+  hideSnack();
+}
+
+function pressStart(e, id, type) {
+  if (e.button > 0 || e.target.closest('.hit')) return; // чекбокс не тянем
+  const card = e.currentTarget;
+  const sx = e.clientX, sy = e.clientY;
+  const timer = setTimeout(() => { stop(); startDrag(card, id, type, sx, sy); }, 300); // как у сделанных
+  const move = (ev) => { if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 10) stop(); }; // это скролл
+  function stop() {
+    clearTimeout(timer);
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', stop);
+    document.removeEventListener('pointercancel', stop);
+  }
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', stop);
+  document.addEventListener('pointercancel', stop);
+}
+
+function startDrag(card, id, type, px, py) {
+  if (navigator.vibrate) navigator.vibrate(25);
+  const r = card.getBoundingClientRect();
+  const ghost = card.cloneNode(true); // «поднятая» копия следует за пальцем
+  ghost.removeAttribute('id'); // иначе дублирует id оригинала и ломает FLIP
+  ghost.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
+  Object.assign(ghost.style, {
+    position: 'fixed', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px',
+    margin: 0, zIndex: 100, pointerEvents: 'none', transform: 'scale(1.045)',
+    boxShadow: '0 14px 34px rgba(0,0,0,.55)', background: '#10182a', transition: 'transform .15s',
+  });
+  document.body.appendChild(ghost);
+  card.classList.add('drag-src');
+  document.getElementById('trash').classList.add('show'); // показать корзину
+  drag = { id, type, ghost, dx: px - r.left, dy: py - r.top, w: r.width, h: r.height, lastSig: '' };
+
+  const onMove = (ev) => {
+    ghost.style.left = (ev.clientX - drag.dx) + 'px';
+    ghost.style.top = (ev.clientY - drag.dy) + 'px';
+    // попадание считаем по ЦЕНТРУ карточки, а не по пальцу — не зависит от места хвата
+    const cx = ev.clientX - drag.dx + drag.w / 2;
+    const cy = ev.clientY - drag.dy + drag.h / 2;
+    const trash = document.getElementById('trash');
+    const tr = document.getElementById('trashBtn').getBoundingClientRect();
+    const pad = 12;
+    const hot = cx >= tr.left - pad && cx <= tr.right + pad &&
+                cy >= tr.top - pad && cy <= tr.bottom + pad;
+    trash.classList.toggle('hot', hot);
+    if (!hot) previewReorder(cx, cy);
+  };
+  const block = (ev) => ev.preventDefault(); // не скроллим во время переноса
+  const onUp = (ev) => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+    document.removeEventListener('touchmove', block);
+    // жест отменён браузером — в корзину не бросаем, карточка возвращается на место
+    if (ev.type === 'pointercancel') document.getElementById('trash').classList.remove('hot');
+    endDrag();
+  };
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', onUp);
+  document.addEventListener('touchmove', block, { passive: false });
+}
+
+const dragArr = () => drag.type === 'task' ? db.tasks : db.notes;
+const dragEl = (id) => document.getElementById(
+  (drag.type === 'task' ? 'task-' : drag.type === 'note' ? 'note-' : 'done-') + id);
+
+function previewReorder(x, y) {
+  if (drag.type === 'done') return; // сделанные не переставляются — только в корзину
+  if (drag.cool && Date.now() - drag.cool < 220) return; // пауза между перестановками
+  const sorted = [...dragArr()].sort((a, b) => a.pos - b.pos);
+  const others = sorted.filter((it) => it.id !== drag.id);
+  // перестановка только когда палец реально НАД другой карточкой
+  let hit = null, before = true;
+  for (const it of others) {
+    const el = dragEl(it.id); if (!el) continue;
+    const c = el.getBoundingClientRect();
+    if (x >= c.left && x <= c.right && y >= c.top && y <= c.bottom) {
+      hit = it; before = y < c.top + c.height / 2; break;
+    }
+  }
+  if (!hit) return;
+  // обмен местами — симметричен и предсказуем для карточек любого размера
+  const order = [...sorted];
+  const i = order.findIndex((it) => it.id === drag.id);
+  const j = order.findIndex((it) => it.id === hit.id);
+  [order[i], order[j]] = [order[j], order[i]];
+  const sig = order.map((it) => it.id).join(',');
+  if (sig === sorted.map((it) => it.id).join(',') || sig === drag.lastSig) return;
+  drag.lastSig = sig;
+  drag.cool = Date.now();
+  order.forEach((it, i) => it.pos = i);
+  rerenderFlip();
+}
+
+// FLIP: плавное перетекание карточек на новые места
+function rerenderFlip() {
+  const olds = new Map();
+  document.querySelectorAll('.card.task[id],.note-card[id]').forEach((el) => olds.set(el.id, el.getBoundingClientRect()));
+  if (drag.type === 'task') renderTasks(); else renderNotes();
+  const src = dragEl(drag.id);
+  if (src) src.classList.add('drag-src');
+  olds.forEach((o, domId) => {
+    const el = document.getElementById(domId);
+    if (!el) return;
+    const n = el.getBoundingClientRect();
+    const dx = o.left - n.left, dy = o.top - n.top;
+    if (!dx && !dy) return;
+    el.style.transition = 'none';
+    el.style.transform = `translate(${dx}px,${dy}px)`;
+    requestAnimationFrame(() => { el.style.transition = 'transform .18s'; el.style.transform = ''; });
+  });
+}
+
+function endDrag() {
+  const trash = document.getElementById('trash');
+  const hot = trash.classList.contains('hot');
+  const { id, type, ghost } = drag;
+  const src = dragEl(id);
+
+  if (hot) { // бросили в корзину — удаляем с анимацией втягивания
+    const tr = document.getElementById('trashBtn').getBoundingClientRect();
+    ghost.style.transition = 'all .22s ease';
+    ghost.style.left = (tr.left + tr.width / 2 - 24) + 'px';
+    ghost.style.top = (tr.top + tr.height / 2 - 14) + 'px';
+    ghost.style.transform = 'scale(.08)';
+    ghost.style.opacity = '0';
+    if (type === 'task') {
+      lastDeleted = { type, item: db.tasks.find((t) => t.id === id) };
+      db.tasks = db.tasks.filter((t) => t.id !== id);
+    } else if (type === 'note') {
+      lastDeleted = { type, item: db.notes.find((n) => n.id === id) };
+      db.notes = db.notes.filter((n) => n.id !== id);
+    } else { // done: удаление из истории
+      lastDeleted = { type, item: db.done.find((d) => d.id === id) };
+      db.done = db.done.filter((d) => d.id !== id);
+    }
+    save();
+    setTimeout(() => {
+      ghost.remove();
+      if (type === 'task') renderTasks();
+      else if (type === 'note') renderNotes();
+      else { renderDone(); renderStats(); }
+    }, 210);
+    showSnack(type === 'task' ? 'Задача удалена' : type === 'note' ? 'Камушек удалён' : 'Удалено из истории');
+  } else {
+    if (src) { // призрак мягко садится на своё место
+      const r = src.getBoundingClientRect();
+      ghost.style.transition = 'all .16s ease';
+      ghost.style.transform = 'scale(1)';
+      ghost.style.left = r.left + 'px';
+      ghost.style.top = r.top + 'px';
+    }
+    setTimeout(() => { ghost.remove(); if (src) src.classList.remove('drag-src'); }, 170);
+    save();
+  }
+
+  trash.classList.remove('show', 'hot');
+  drag = null;
+  // после удержания клик всегда гасим — иначе случайно открывается редактор
+  suppressClick = true;
+  setTimeout(() => suppressClick = false, 300);
+}
+
+/* старт */
+renderTasks(); renderNotes(); renderRiver(); renderStats();
+
+/* PWA: офлайн-режим и установка на телефон */
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+// просим браузер не вычищать данные при нехватке места
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+// пришли с вечера, а на дворе утро — обновляем речку и сроки
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  renderTasks();
+  if (current === 'river') renderRiver();
+  if (current === 'profile') renderStats();
+});
+</script>
+</body>
+</html>
