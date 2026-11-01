@@ -78,10 +78,37 @@
 
   // 7. новое устройство со стартовыми примерами получает облако целиком, примеры в облако не попадают
   const cloudBefore = JSON.stringify(remote());
-  const fresh = seedDb(); Object.assign(db, fresh); takeSnap(); cloudKeys = {};
+  const fresh = seedDb(); for (const k of Object.keys(db)) delete db[k]; // новое устройство — с чистого листа
+  Object.assign(db, fresh); takeSnap(); cloudKeys = {};
   await cloudSync();
   check('новое устройство: облако целиком, стартовые примеры не смешались',
     JSON.stringify(remote()) === cloudBefore && titles('tasks').includes('С компьютера (правка на телефоне)') && !db.fresh);
+
+  // 7б. второе устройство со СТАРЫМИ данными (сохранены прежней версией: без учёта правок и отметки о сверке).
+  // Так было на компьютере: его примеры объединились с телефоном — выполненное «воскресло», появились дубли
+  const cloudNow = JSON.stringify(remote());
+  const legacy = seedDb(); delete legacy.fresh; delete legacy.deleted;
+  legacy.tasks[0].due = null; legacy.done = [{ id: 5, title: 'Старое сделанное', at: Date.now() - 86400e3 }]; // не просто примеры
+  localStorage.setItem('rockdo-demo', JSON.stringify(legacy));
+  const loaded = loadDb();
+  for (const k of Object.keys(db)) delete db[k];
+  Object.assign(db, loaded); takeSnap(); cloudKeys = {};
+  await cloudSync();
+  const dupes = (list) => list.length !== new Set(list).size;
+  check('устройство со старыми данными берёт облако целиком: без дублей и «воскресших» дел, своё — в резервной копии',
+    JSON.stringify(remote()) === cloudNow && JSON.stringify(db.tasks) === JSON.stringify(remote().tasks) &&
+    !dupes(titles('tasks')) && !!localStorage.getItem('rockdo-demo-before-cloud') && db.synced === true);
+  // обратный порядок: облако пустое, первым сверяется устройство со старыми нетронутыми примерами — их не отправляем
+  const storeSaved = store; store = {}; cloudKeys = {};
+  localStorage.setItem('rockdo-demo', JSON.stringify((() => { const d = seedDb(); delete d.fresh; return d; })()));
+  const old = loadDb();
+  for (const k of Object.keys(db)) delete db[k];
+  Object.assign(db, old); takeSnap();
+  await cloudSync();
+  check('старые нетронутые примеры в пустое облако не уходят', old.fresh === true && Object.keys(store).length === 0);
+  store = storeSaved; cloudKeys = {};
+  for (const k of Object.keys(db)) delete db[k];
+  Object.assign(db, remote(), { synced: true, fresh: false, guideNote: true, seedOrder: true }); takeSnap();
 
   // 8. без сети: ничего не ломается, данные на месте; сеть вернулась — догоняет
   offline = true;

@@ -446,7 +446,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.1';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -481,6 +481,11 @@ function loadDb() {
   d.tasks = d.tasks || []; d.notes = d.notes || []; d.done = d.done || []; d.deleted = d.deleted || {};
   d.tasks.forEach((t) => { if (t.pos === undefined) t.pos = -t.id; });
   d.notes.forEach((n) => { if (n.pos === undefined) n.pos = -n.at; });
+  // сохранённые старой версией, но нетронутые стартовые примеры — тоже «примеры», в облако их не отправляем
+  if (d.fresh === undefined && !d.synced) {
+    const seed = seedDb(), has = (list, x) => list.some((s) => s.title === x.title);
+    d.fresh = !d.done.length && d.tasks.every((t) => has(seed.tasks, t)) && d.notes.every((n) => has(seed.notes, n));
+  }
   return d;
 }
 const db = loadDb();
@@ -1176,6 +1181,9 @@ function mergeData(local, remote) {
   out.river = !lr ? rr : !rr ? lr : (rr.upd || 0) > (lr.upd || 0) ? rr : lr;
   return out;
 }
+// не сверялось: нет отметки о сверке и нет следов учёта правок (их оставляет только версия с облаком)
+const neverSynced = () => !db.synced && !Object.keys(db.deleted).length &&
+  !Object.keys(KINDS).some((kind) => db[kind].some((it) => it.upd));
 function applyMerged(m) {
   if (JSON.stringify(cloudPack(m)) === JSON.stringify(cloudPack(db))) return; // нового ничего
   Object.assign(db, m, { fresh: false });
@@ -1189,9 +1197,15 @@ function cloudSync() {
   syncing = (async () => {
     try {
       const remote = await cloudRead();
-      // новая установка (ещё стартовые примеры) берёт облако целиком — примеры в облако не попадают
-      if (remote) applyMerged(db.fresh ? remote : mergeData(db, remote));
-      if (remote || !db.fresh) await cloudWrite(cloudPack(db));
+      if (remote && neverSynced()) {
+        // Устройство ещё ни разу не сверялось, а в облаке уже есть данные — берём облако целиком.
+        // Объединять нельзя: у независимых копий одинаковые id (стартовые примеры) и нет истории удалений —
+        // выполненное или удалённое на другом устройстве «воскресло» бы, появились бы дубли. Своё — в резервную копию.
+        try { if (!localStorage.getItem(STORE + '-before-cloud')) localStorage.setItem(STORE + '-before-cloud', JSON.stringify(db)); } catch (e) { /* нет доступа */ }
+        applyMerged(remote);
+      } else if (remote) applyMerged(mergeData(db, remote));
+      if (remote || !db.fresh) await cloudWrite(cloudPack(db)); // стартовые примеры в пустое облако не отправляем
+      if (!db.synced) { db.synced = true; saveLocal(); }
       cloudAt = Date.now(); cloudBroken = 0;
     } catch (e) {
       // нет сети или облако недоступно — локальная копия цела, повторим при следующей правке или открытии.
