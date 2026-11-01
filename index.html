@@ -48,6 +48,7 @@ h1{font-size:21px;margin-bottom:4px}
 .hero .phrase{font-size:18px;font-weight:700;line-height:1.3}
 .hero .hint{color:var(--accent2);font-size:12px;line-height:1.4;margin-top:8px}
 .count{margin-bottom:10px}
+.count b{color:var(--text)}
 /* подсказка с Рокки спрятана над «Моими делами»; открывается тугим потягиванием вниз */
 .hero-wrap{height:0;overflow:hidden;--p:0;display:flex;flex-direction:column;justify-content:flex-end} /* выезжает сверху, как из-под края */
 .hero-wrap.open{--p:1}
@@ -57,7 +58,6 @@ h1{font-size:21px;margin-bottom:4px}
 .hero-wrap .hero img{transform:rotate(calc((1 - var(--p)) * -9deg)) scale(calc(.8 + .2 * var(--p)))}
 .hero-wrap.hop .hero img{animation:rocky-hop .55s cubic-bezier(.3,1.4,.5,1)}
 @keyframes rocky-hop{0%{transform:none}40%{transform:translateY(-7px) rotate(-3deg) scale(1.03)}75%{transform:translateY(1px) rotate(1deg)}100%{transform:none}}
-.count b{color:var(--text)}
 
 /* карточки, которые можно взять пальцем */
 .task,.note-card,.done-wrap{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
@@ -455,7 +455,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.5.9';
+const APP_VERSION = '1.6.0';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -479,7 +479,7 @@ function seedDb() {
       { id: 1, title: 'Идея для проекта', body: 'Сервис, который помогает людям сохранять фокус на важном...', at: now - 3600e3, pos: 1 },
       { id: 3, title: 'Как устроен rock do', body: GUIDE, at: now - 2 * DAY, pos: 2 },
     ],
-    done: [], river: null, nextId: 100, guideNote: true, seedOrder: true, deleted: {},
+    done: [], river: null, nextId: 100, deleted: {},
     fresh: true, // стартовые примеры: пока пользователь ничего не менял, в облако их не отправляем
   };
 }
@@ -585,117 +585,6 @@ function go(s) {
   if (s === 'profile') renderStats();
   if (s === 'river') renderRiver(); // локация зависит от времени
 }
-/* Подсказка открывается, как «потяни, чтобы обновить»: список в самом верху, тянем вниз — она туго
-   выезжает (идёт за пальцем в 2,5 раза медленнее) и, если протянуть на PULL_OPEN, открывается целиком.
-   Обычная прокрутка списка не меняется: жест работает только там, где прокручивать вверх уже некуда. */
-const PULL_OPEN = 350; // тугое: почти полэкрана пальцем
-const heroWrap = () => $('hero-wrap');
-const heroFull = () => { const h = heroWrap().firstElementChild; return h.offsetHeight + parseFloat(getComputedStyle(h).marginBottom); };
-// резинка как в iOS: чем дальше тянем, тем туже — к порогу видно около трети подсказки, дальше почти не растёт
-const rubber = (x, full) => (1 - 1 / (x * 0.54 / (PULL_OPEN - SLOP) + 1)) * full;
-const readyH = (full) => rubber(PULL_OPEN - SLOP, full); // столько видно в момент «можно отпускать»
-// высота → вид: к моменту «можно отпускать» подсказка уже проявилась целиком
-function heroShow(w, h, full) {
-  w.style.height = Math.max(0, h) + 'px';
-  w.style.setProperty('--p', Math.min(1, Math.max(0, h / readyH(full))).toFixed(3));
-}
-/* Пружина как у Apple (SwiftUI .spring: отклик 0,5 с, затухание 0,7 — садится с лёгким отскоком),
-   стартует со скоростью пальца, поэтому движение продолжается, а не начинается заново. */
-let heroAnim = 0;
-function springHero(to, v = 0) {
-  cancelAnimationFrame(heroAnim);
-  const w = heroWrap(), full = heroFull(), k = (2 * Math.PI / 0.5) ** 2, c = 4 * Math.PI * 0.7 / 0.5;
-  let x = w.offsetHeight, last = performance.now();
-  const step = (now) => {
-    const dt = Math.min(0.032, (now - last) / 1000) / 4; last = now;
-    for (let i = 0; i < 4; i++) { v += (-k * (x - to) - c * v) * dt; x += v * dt; }
-    if (Math.abs(x - to) < 0.5 && Math.abs(v) < 10) {
-      finishHero(to > 0);
-      if (to > 0) { w.classList.add('hop'); setTimeout(() => w.classList.remove('hop'), 700); }
-      return;
-    }
-    heroShow(w, x, full);
-    heroAnim = requestAnimationFrame(step);
-  };
-  heroAnim = requestAnimationFrame(step);
-}
-function finishHero(open) {
-  const w = heroWrap();
-  w.style.removeProperty('--p');
-  w.style.height = open ? heroFull() + 'px' : '';
-}
-function setHero(open, animate, v) {
-  cancelAnimationFrame(heroAnim);
-  heroWrap().classList.toggle('open', open);
-  heroWrap().classList.remove('hop');
-  if (animate) springHero(open ? heroFull() : 0, v); else finishHero(open);
-}
-let pull = null;
-function pullStart(e) {
-  pull = !heroWrap().classList.contains('open') && $('s-rock').scrollTop <= 0 && e.touches.length === 1 ? { y: e.touches[0].clientY } : null;
-}
-function pullMove(e) {
-  if (!pull || drag) return; // поднятую карточку не трогаем
-  const d = e.touches[0].clientY - pull.y;
-  if (!pull.on) {
-    // Пока направление не ясно (дрожь пальца), касание не трогаем: отменённое первое движение запрещает
-    // браузеру прокрутку на весь жест — список «не листался», если палец, коснувшись, дрогнул вниз.
-    if (Math.abs(d) < SLOP) return;
-    if (d < 0) { pull = null; return; } // повели вверх — это обычная прокрутка
-  }
-  if (e.cancelable) e.preventDefault(); // вверх прокручивать некуда — тянем подсказку
-  const w = heroWrap(), full = heroFull();
-  if (!pull.on) { // подхватили на лету (ещё закрывается) — продолжаем с той же высоты, без скачка
-    pull.on = true;
-    cancelAnimationFrame(heroAnim);
-    pull.x0 = (1 / (1 - Math.min(0.99, w.offsetHeight / full)) - 1) * (PULL_OPEN - SLOP) / 0.54; // обратная к rubber
-  }
-  const h = rubber(pull.x0 + Math.max(0, d - SLOP), full), now = performance.now();
-  if (pull.t) pull.v = (h - pull.h) / Math.max(1, now - pull.t) * 1000; // скорость, с которой отпустят
-  pull.h = h; pull.t = now;
-  heroShow(w, h, full);
-  const ready = d >= PULL_OPEN;
-  if (ready && !pull.ready) haptic('drag'); // как щелчок в iOS: дотянули
-  pull.ready = ready;
-}
-function pullEnd() {
-  if (!pull) return;
-  const p = pull; pull = null;
-  if (p.on) setHero(p.ready && !drag, true, p.v || 0);
-}
-/* Трекпад и колесо (Mac): в самом верху — отдельная долгая прокрутка вверх; подсказка так же туго
-   выезжает следом и, если не докрутить, уходит обратно — как пальцем на телефоне. Докрутили до «Моих дел»
-   снизу — трекпад ещё долго шлёт события по инерции; они подсказку не трогают. Считаем только жест,
-   начатый, когда список уже постоял в самом верху (TOP_REST), после паузы между событиями (инерция
-   идёт сплошным потоком). Жест кончился — WHEEL_END без событий. */
-const WHEEL_OPEN = 900, WHEEL_PAUSE = 350, TOP_REST = 700, WHEEL_END = 200;
-let wheelPull = 0, wheelArmed = false, wheelLast = 0, scrolledAt = 0, wheelTimer = 0;
-function wheelDone() {
-  clearTimeout(wheelTimer);
-  if (wheelPull > 0) setHero(wheelPull >= WHEEL_OPEN, true); // докрутили — открылась, нет — ушла обратно
-  wheelPull = 0; wheelArmed = false;
-}
-function pullWheel(e) {
-  const now = performance.now(), gap = now - wheelLast;
-  wheelLast = now;
-  if (heroWrap().classList.contains('open') || $('s-rock').scrollTop > 0 || e.deltaY >= 0) { if (wheelPull > 0) wheelDone(); wheelArmed = false; return; }
-  if (!wheelArmed && gap > WHEEL_PAUSE && now - scrolledAt > TOP_REST) { wheelArmed = true; wheelPull = 0; } // новый жест в самом верху
-  if (!wheelArmed) return; // докатились сюда прокруткой или по инерции
-  if (!wheelPull) cancelAnimationFrame(heroAnim);
-  wheelPull -= e.deltaY;
-  const full = heroFull();
-  heroShow(heroWrap(), rubber(Math.min(wheelPull, WHEEL_OPEN * 1.5) * (PULL_OPEN - SLOP) / WHEEL_OPEN, full), full);
-  clearTimeout(wheelTimer); wheelTimer = setTimeout(wheelDone, WHEEL_END);
-}
-// Колесо листает экран, где бы ни стоял курсор: над полями по бокам от колонки приложения (широкое окно
-// Telegram на Mac) и над нижней панелью — тоже, и подсказка ведёт себя одинаково.
-document.addEventListener('wheel', (e) => {
-  if (e.target.closest('.screen') || document.querySelector('.overlay.on, .sheet-back.on')) return; // там листает сам браузер
-  const sc = document.querySelector('.screen.on');
-  if (!sc) return;
-  sc.scrollTop += e.deltaY;
-  if (sc.id === 's-rock') pullWheel(e);
-}, { passive: true });
 function plusAction() { current === 'notes' ? openNote(null) : openTaskEditor(null); }
 const openOverlay = (id) => $(id).classList.add('on');
 const closeOverlay = (id) => $(id).classList.remove('on');
@@ -1094,7 +983,9 @@ function renderStats() {
    - слушаем элемент под пальцем, а не document: при перестановке список перерисовывается, элемент
      выпадает из документа, и события касания до document больше не доходят, а ему самому — доходят. */
 const HOLD_MS = 280, SLOP = 8;
-let drag = null, suppressClick = false;
+let drag = null, pressing = false, suppressClick = false;
+// палец держит карточку (ждём удержания или уже переносим) — данные и список под ним не трогаем
+const busy = () => drag || pressing;
 function pressStart(e, id, type) {
   if (e.button > 0 || e.target.closest('.hit')) return; // кружок не тянем
   if (drag) endDrag(true);
@@ -1103,6 +994,7 @@ function pressStart(e, id, type) {
   const [MOVE, UP, CANCEL] = touch ? ['touchmove', 'touchend', 'touchcancel'] : ['pointermove', 'pointerup', 'pointercancel'];
   const sx = e.clientX, sy = e.clientY;
   let lifted = false;
+  pressing = true;
   const timer = setTimeout(() => { lifted = true; startDrag(card, id, type, sx, sy); }, HOLD_MS);
   const move = (ev) => {
     const p = ev.changedTouches ? ev.changedTouches[0] : ev;
@@ -1113,6 +1005,8 @@ function pressStart(e, id, type) {
   function finish() {
     clearTimeout(timer);
     host.removeEventListener(MOVE, move); host.removeEventListener(UP, up); host.removeEventListener(CANCEL, up);
+    pressing = false;
+    if (resync) cloudLater(); // пока держали, в облаке появилось новое — сверяемся
   }
   host.addEventListener(MOVE, move, { passive: false });
   host.addEventListener(UP, up);
@@ -1236,6 +1130,93 @@ function endDrag(cancelled) {
   }
 }
 
+/* ===================== подсказка над «Моими делами» ===================== */
+/* Подсказка с Рокки спрятана: камень открывается сразу с «Моих дел». Открывается, как «потяни, чтобы
+   обновить», только пальцем: список в самом верху, тянем вниз — она туго выезжает и, если протянуть
+   на PULL_OPEN, открывается целиком; не дотянули — уходит обратно. Обычная прокрутка не меняется:
+   жест работает только там, где прокручивать вверх уже некуда. Уходим с камня — снова прячется. */
+const PULL_OPEN = 350; // тугое: почти полэкрана пальцем
+const heroWrap = () => $('hero-wrap');
+const heroFull = () => { const h = heroWrap().firstElementChild; return h.offsetHeight + parseFloat(getComputedStyle(h).marginBottom); };
+// резинка как в iOS: чем дальше тянем, тем туже — к порогу видно около трети подсказки, дальше почти не растёт
+const RUBBER = 0.54 / (PULL_OPEN - SLOP);
+const rubber = (x, full) => (1 - 1 / (x * RUBBER + 1)) * full;
+const unrubber = (h, full) => (1 / (1 - Math.min(0.99, h / full)) - 1) / RUBBER;
+// высота → вид (--p в CSS): к моменту «можно отпускать» подсказка уже проявилась целиком
+function heroShow(h, full) {
+  const w = heroWrap();
+  w.style.height = Math.max(0, h) + 'px';
+  w.style.setProperty('--p', Math.min(1, Math.max(0, h / rubber(PULL_OPEN - SLOP, full))).toFixed(3));
+}
+function heroFinish(open) {
+  const w = heroWrap();
+  w.style.removeProperty('--p');
+  w.style.height = open ? heroFull() + 'px' : '';
+}
+/* Пружина как у Apple (SwiftUI .spring: отклик 0,5 с, затухание 0,7 — садится с лёгким отскоком),
+   стартует со скоростью пальца, поэтому движение продолжается, а не начинается заново. */
+let heroAnim = 0;
+function heroSpring(to, v) {
+  const w = heroWrap(), full = heroFull(), k = (2 * Math.PI / 0.5) ** 2, c = 4 * Math.PI * 0.7 / 0.5;
+  let x = w.offsetHeight, last = performance.now();
+  const step = (now) => {
+    const dt = Math.min(0.032, (now - last) / 1000) / 4; last = now;
+    for (let i = 0; i < 4; i++) { v += (-k * (x - to) - c * v) * dt; x += v * dt; }
+    if (Math.abs(x - to) < 0.5 && Math.abs(v) < 10) {
+      heroFinish(to > 0);
+      if (to > 0) { w.classList.add('hop'); setTimeout(() => w.classList.remove('hop'), 700); } // Рокки подпрыгивает
+      return;
+    }
+    heroShow(x, full);
+    heroAnim = requestAnimationFrame(step);
+  };
+  heroAnim = requestAnimationFrame(step);
+}
+function setHero(open, animate, v = 0) {
+  cancelAnimationFrame(heroAnim);
+  heroWrap().classList.toggle('open', open);
+  heroWrap().classList.remove('hop');
+  if (animate) heroSpring(open ? heroFull() : 0, v); else heroFinish(open);
+}
+let pull = null;
+function pullStart(e) {
+  pull = !heroWrap().classList.contains('open') && $('s-rock').scrollTop <= 0 && e.touches.length === 1 ? { y: e.touches[0].clientY } : null;
+}
+function pullMove(e) {
+  if (!pull || drag) return; // поднятую карточку не трогаем
+  const d = e.touches[0].clientY - pull.y;
+  if (!pull.on) {
+    // Пока направление не ясно (дрожь пальца), касание не трогаем: отменённое первое движение запрещает
+    // браузеру прокрутку на весь жест — список «не листался», если палец, коснувшись, дрогнул вниз.
+    if (Math.abs(d) < SLOP) return;
+    if (d < 0) { pull = null; return; } // повели вверх — это обычная прокрутка
+    // подхватили на лету (ещё закрывается) — продолжаем с той же высоты, без скачка
+    cancelAnimationFrame(heroAnim);
+    pull.on = true; pull.full = heroFull();
+    pull.x0 = unrubber(heroWrap().offsetHeight, pull.full);
+  }
+  if (e.cancelable) e.preventDefault(); // вверх прокручивать некуда — тянем подсказку
+  const h = rubber(pull.x0 + d - SLOP, pull.full), now = performance.now();
+  if (pull.t) pull.v = (h - pull.h) / Math.max(1, now - pull.t) * 1000; // скорость, с которой отпустят
+  pull.h = h; pull.t = now;
+  heroShow(h, pull.full);
+  const ready = d >= PULL_OPEN;
+  if (ready && !pull.ready) haptic('drag'); // как щелчок в iOS: дотянули
+  pull.ready = ready;
+}
+function pullEnd() {
+  if (!pull) return;
+  const p = pull; pull = null;
+  if (p.on) setHero(p.ready && !drag, true, p.v || 0);
+}
+// Колесо листает экран, где бы ни стоял курсор: над полями по бокам от колонки приложения (широкое окно
+// Telegram на Mac) и над нижней панелью — тоже. Над самим экраном листает браузер.
+document.addEventListener('wheel', (e) => {
+  if (e.target.closest('.screen') || document.querySelector('.overlay.on, .sheet-back.on')) return;
+  const sc = document.querySelector('.screen.on');
+  if (sc) sc.scrollTop += e.deltaY;
+}, { passive: true });
+
 /* ===================== облако Telegram ===================== */
 /* Копия данных в CloudStorage Telegram: она привязана к аккаунту и боту, а не к телефону — переживёт
    смену телефона и видна в Telegram на компьютере. Работа идёт с локальной копией (мгновенно и без сети),
@@ -1258,12 +1239,14 @@ let cloudKeys = {};    // куски снимка, как они сейчас л
 let snapItems = null, snapSum = null; // элементы снимка в облаке и его сумма — от них считается журнал
 let stateSum = null, lastRevId = null; // сумма данных в облаке и заголовок последней известной метки
 let cloudTimer, cloudAt = 0, syncing = null, syncAgain = false, cloudBroken = 0, readOnce = false;
+let resync = false; // облако прочитали, пока палец держал карточку, — данные не применены, нужна полная сверка
 let badRev = null, badRevAt = 0, mixedRead = false; // несошедшийся снимок: ждём дописи или признаём смесь
 let pollTimer = null, pollDelay = POLL_MS, compactTimer = null;
 let readMs = 0, writeMs = 0, writeCalls = 0; // последние чтение и запись — видно в «Хранение»
 let cloudErr = null; // последняя ошибка облака (текст и время) — тоже видно в «Хранение»
 const noteCloudErr = (e) => { cloudErr = { msg: String((e && e.message) || e), at: Date.now() }; };
 class PartialRead extends Error {} // прочитали снимок посреди чужой записи
+class Postponed extends Error {}   // прочитали, пока палец держал карточку, — применим после
 const cs = (method, ...args) => new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('timeout')), 10000);
   cloud[method](...args, (err, val) => { clearTimeout(timer); if (err) reject(new Error(err)); else resolve(val); });
@@ -1442,12 +1425,15 @@ function applyMerged(m) {
 // на ближайшей проверке — каждое устройство объединяет облако со своим и дописывает недостающее.
 function cloudSync(mode) {
   if (!cloud) return Promise.resolve();
-  if (syncing || drag) { syncAgain = true; return syncing || Promise.resolve(); } // во время переноса карточки не трогаем данные
+  if (syncing || busy()) { syncAgain = true; return syncing || Promise.resolve(); } // во время переноса карточки не трогаем данные
   syncing = (async () => {
     try {
       let remote = null;
-      if (!(mode === 'local' && readOnce)) {
+      if (!(mode === 'local' && readOnce) || resync) {
         remote = await cloudRead();
+        // пока читали, палец взял карточку: перерисовка оборвала бы перенос — применим после, полной сверкой
+        if (busy()) throw new Postponed();
+        resync = false;
         if (remote && neverSynced()) {
           // Устройство ещё ни разу не сверялось, а в облаке уже есть данные — берём облако целиком.
           // Объединять нельзя: у независимых копий одинаковые id (стартовые примеры) и нет истории удалений —
@@ -1461,7 +1447,8 @@ function cloudSync(mode) {
       if (!db.synced) { db.synced = true; saveLocal(); }
       cloudAt = Date.now(); cloudBroken = 0;
     } catch (e) {
-      if (!(e instanceof PartialRead)) noteCloudErr(e);
+      if (e instanceof Postponed) resync = true;
+      else if (!(e instanceof PartialRead)) noteCloudErr(e);
       // Нет сети или облако недоступно — локальная копия цела, повторим при следующей правке или проверке.
       // Чужая перепись снимка в пути (PartialRead) — метка не принята, перечитаем на ближайшей проверке.
       // Облако дважды не читается вовсе (кусок потерян) — переписываем снимок своей копией, остальные дообъединятся.
@@ -1473,7 +1460,7 @@ function cloudSync(mode) {
     }
     syncing = null;
     renderSync();
-    if (syncAgain) { syncAgain = false; cloudLater(); }
+    if (syncAgain || (resync && !busy())) { syncAgain = false; cloudLater(); }
   })();
   return syncing;
 }
@@ -1487,7 +1474,7 @@ const newer = (a, b) => {
   return false;
 };
 function updateTo(v) {
-  if (!v || !newer(v, APP_VERSION) || drag || document.querySelector('.overlay.on, .sheet-back.on')) return; // не посреди правки
+  if (!v || !newer(v, APP_VERSION) || busy() || document.querySelector('.overlay.on, .sheet-back.on')) return; // не посреди правки
   try { if (sessionStorage.getItem('rocky-update') === v) return; sessionStorage.setItem('rocky-update', v); } catch (e) { return; }
   location.replace(location.pathname + '?v=' + encodeURIComponent(v) + location.hash);
 }
@@ -1496,9 +1483,9 @@ async function cloudPoll() {
   if (!cloud || document.visibilityState !== 'visible') return;
   const started = Date.now();
   try {
-    if (!syncing && !drag) {
+    if (!syncing && !busy()) {
       const rev = await cs('getItem', 'rev');
-      if (rev) {
+      if (rev && !busy()) { // пока ждали ответа, палец взял карточку — разберём на следующей проверке
         const { head, snap, journal } = parseRev(rev);
         updateTo(head.split('-')[2]);
         if (head !== lastRevId) { // кто-то другой записал
@@ -1533,7 +1520,7 @@ function scheduleCompact() {
   clearTimeout(compactTimer);
   compactTimer = setTimeout(() => {
     compactTimer = null;
-    if (!cloud || syncing || drag || cloudTimer) { scheduleCompact(); return; }
+    if (!cloud || syncing || busy() || cloudTimer) { scheduleCompact(); return; }
     syncing = cloudWrite(db, false, true).catch(noteCloudErr).finally(() => { syncing = null; if (syncAgain) { syncAgain = false; cloudLater(); } });
   }, COMPACT_MS);
 }
@@ -1576,8 +1563,6 @@ $('s-rock').addEventListener('touchstart', pullStart, { passive: true });
 $('s-rock').addEventListener('touchmove', pullMove, { passive: false });
 $('s-rock').addEventListener('touchend', pullEnd);
 $('s-rock').addEventListener('touchcancel', pullEnd);
-$('s-rock').addEventListener('wheel', pullWheel, { passive: true });
-$('s-rock').addEventListener('scroll', () => { scrolledAt = performance.now(); }, { passive: true });
 function renderAll() { renderTasks(); renderDone(); renderNotes(); renderStats(); }
 renderAll();
 renderRiver();
@@ -1602,7 +1587,7 @@ document.addEventListener('visibilitychange', () => {
     return;
   }
   schedulePoll();
-  if (drag) return;
+  if (busy()) return;
   cloudSync();
   renderTasks(); renderDone();
   if (current === 'river') renderRiver();
