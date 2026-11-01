@@ -96,6 +96,7 @@
   renderTasks();
   const cards = () => document.querySelectorAll('#task-list .card.task');
   const step = cards()[1].getBoundingClientRect().top - cards()[0].getBoundingClientRect().top;
+  const mcardsUp = cards;
   const first = titles()[0], b0 = cards()[0].querySelector('b'), p0 = at(b0, 20);
   await hold(b0, p0, [p0[0], p0[1] + 3 * step]);
   check('удержание и перенос дела на 3 позиции вниз', titles().indexOf(first) === 3);
@@ -115,6 +116,13 @@
   await sleep(HOLD_MS + 60);
   check('быстрый свайп — прокрутка, карточка не поднимается', !drag);
   c3.dispatchEvent(touchEv('touchend', c3, sx, sy - 40));
+  // перенос вверх: список прокручивается не выше «Моих дел» — подсказка с Рокки не выезжает
+  const rockOff = () => document.getElementById('rock-main').offsetTop - parseFloat(getComputedStyle(sc).paddingTop);
+  sc.scrollTop = rockOff() + 300; await sleep(50);
+  const up0 = mcardsUp()[2].querySelector('b'), pu = at(up0, 20);
+  await hold(up0, pu, [pu[0], 30], 1500);
+  check('перенос вверх: прокрутка остановилась на «Моих делах», подсказка не выехала',
+    sc.scrollTop === rockOff() && document.querySelector('.hero').getBoundingClientRect().bottom <= sc.getBoundingClientRect().top + 20);
   // мышь и трекпад (ноутбук): нажал и сразу повёл — перенос без удержания; просто клик — открывает дело
   const mcards = () => document.querySelectorAll('#task-list .card.task');
   sc.scrollTop = 0; rockToTop(); await sleep(50);

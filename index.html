@@ -574,10 +574,8 @@ const plural = (n, f) => f[n % 10 === 1 && n % 100 !== 11 ? 0 : n % 10 >= 2 && n
 /* ===================== каркас: экраны, окна, сообщения ===================== */
 let current = 'rock';
 // камень открывается сразу с «Моих дел»; подсказка с Рокки — выше, до неё можно долистать
-function rockToTop() {
-  const sc = $('s-rock');
-  sc.scrollTop = $('rock-main').offsetTop - parseFloat(getComputedStyle(sc).paddingTop);
-}
+const rockTopOffset = () => $('rock-main').offsetTop - parseFloat(getComputedStyle($('s-rock')).paddingTop);
+function rockToTop() { $('s-rock').scrollTop = rockTopOffset(); }
 function go(s) {
   const wasRock = current === 'rock' && $('s-rock').classList.contains('on');
   current = s;
@@ -1061,7 +1059,9 @@ function autoScroll() {
     const y = drag.py - drag.dy + drag.h / 2;
     const v = y < top ? -Math.min(14, (top - y) / 4) : y > bottom && y < hotTop ? Math.min(14, (y - bottom) / 4) : 0;
     const before = sc.scrollTop;
-    if (v) sc.scrollTop += v;
+    // на камне вверх — не дальше «Моих дел»: подсказка с Рокки при переносе не нужна
+    const min = sc.id === 's-rock' ? Math.min(before, rockTopOffset()) : 0;
+    if (v) sc.scrollTop = Math.max(min, before + v);
     if (sc.scrollTop !== before) dragMove(drag.px, drag.py);
   }
   requestAnimationFrame(autoScroll);
