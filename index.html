@@ -446,7 +446,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.4.2';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -1124,6 +1124,10 @@ const CHUNK = 4000, MAX_KEYS = 1000, TOMB_DAYS = 180;
 let cloud = null;      // Telegram.WebApp.CloudStorage, когда приложение открыто в Telegram
 let cloudKeys = {};    // что сейчас лежит в облаке: ключ → значение (пишем только изменившееся)
 let cloudTimer, cloudAt = 0, syncing = null, syncAgain = false, cloudBroken = 0;
+// живая сверка: после каждой записи устройство обновляет метку rev («последнее изменение»);
+// пока Rocky на экране, другие устройства раз в POLL_MS читают только её и при изменении подтягивают данные
+const POLL_MS = 500, POLL_MAX = 8000;
+let lastRev = null, pollTimer = null, pollDelay = POLL_MS;
 const cs = (method, ...args) => new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('timeout')), 10000);
   cloud[method](...args, (err, val) => { clearTimeout(timer); if (err) reject(new Error(err)); else resolve(val); });
@@ -1151,15 +1155,22 @@ async function cloudRead() {
   if (!all.includes('idx')) return null; // в облаке пусто
   const keys = await cs('getItems', all);
   Object.assign(cloudKeys, keys);
+  lastRev = keys.rev || null;
   return cloudUnpack(keys);
 }
 async function cloudWrite(keys) {
   if (Object.keys(keys).length > MAX_KEYS) throw new Error('cloud full');
   const changed = Object.keys(keys).filter((k) => k !== 'idx' && cloudKeys[k] !== keys[k]);
   await Promise.all(changed.map((k) => cs('setItem', k, keys[k]).then(() => { cloudKeys[k] = keys[k]; })));
-  if (cloudKeys.idx !== keys.idx) { await cs('setItem', 'idx', keys.idx); cloudKeys.idx = keys.idx; } // опись — последней
-  const stale = Object.keys(cloudKeys).filter((k) => !(k in keys));
+  const idxChanged = cloudKeys.idx !== keys.idx;
+  if (idxChanged) { await cs('setItem', 'idx', keys.idx); cloudKeys.idx = keys.idx; } // опись — после кусков
+  const stale = Object.keys(cloudKeys).filter((k) => !(k in keys) && k !== 'rev');
   if (stale.length) { await cs('removeItems', stale); stale.forEach((k) => delete cloudKeys[k]); }
+  if (changed.length || idxChanged || stale.length) { // метка — последней: другие устройства увидят уже целые данные
+    const rev = Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+    await cs('setItem', 'rev', rev);
+    cloudKeys.rev = lastRev = rev;
+  }
 }
 // слияние двух копий: по каждому элементу побеждает более поздняя правка (при равенстве — своя);
 // удалённое не возвращается, если его не правили после удаления
@@ -1220,7 +1231,24 @@ function cloudSync() {
   })();
   return syncing;
 }
-function cloudLater(ms = 1200) {
+async function cloudPoll() {
+  pollTimer = null;
+  if (!cloud || document.visibilityState !== 'visible') return;
+  try {
+    if (!syncing && !drag) {
+      const rev = await cs('getItem', 'rev');
+      if (rev && rev !== lastRev) await cloudSync(); // кто-то другой записал — подтягиваем
+    }
+    pollDelay = POLL_MS;
+  } catch (e) {
+    pollDelay = Math.min(POLL_MAX, pollDelay * 2); // облако не отвечает — реже, пока не оживёт
+  }
+  schedulePoll();
+}
+function schedulePoll() {
+  if (cloud && !pollTimer && document.visibilityState === 'visible') pollTimer = setTimeout(cloudPoll, pollDelay);
+}
+function cloudLater(ms = 300) {
   if (!cloud) return;
   clearTimeout(cloudTimer);
   cloudTimer = setTimeout(() => { cloudTimer = null; cloudSync(); }, ms);
@@ -1244,7 +1272,7 @@ function initTelegram() {
   if (tg.isVersionAtLeast('6.9')) tg.setHeaderColor('#030912');
   if (tg.isVersionAtLeast('6.1')) tg.setBackgroundColor('#030912');
   if (tg.isVersionAtLeast('7.10')) tg.setBottomBarColor('#050b14');
-  if (tg.isVersionAtLeast('6.9') && tg.CloudStorage) { cloud = tg.CloudStorage; renderSync(); cloudSync(); }
+  if (tg.isVersionAtLeast('6.9') && tg.CloudStorage) { cloud = tg.CloudStorage; renderSync(); cloudSync(); schedulePoll(); }
 }
 function haptic(kind) {
   if (tg && tg.isVersionAtLeast('6.1')) kind === 'success' ? tg.HapticFeedback.notificationOccurred('success') : tg.HapticFeedback.impactOccurred('medium');
@@ -1270,7 +1298,8 @@ if (navigator.storage && navigator.storage.persist) navigator.storage.persist().
 // уходим из приложения — сразу отправить несохранённое в облако;
 // вернулись (например, утром или после правок на компьютере) — сверить облако, обновить сроки и речку
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') { if (cloudTimer) cloudSync(); return; }
+  if (document.visibilityState === 'hidden') { clearTimeout(pollTimer); pollTimer = null; if (cloudTimer) cloudSync(); return; }
+  schedulePoll();
   if (drag) return;
   cloudSync();
   renderTasks(); renderDone();

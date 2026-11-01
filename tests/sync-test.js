@@ -120,7 +120,7 @@
   // 9. данные уменьшились — лишние куски из облака удалены
   const keysBefore = Object.keys(store).length;
   await userAction(() => { db.notes = db.notes.filter((n) => n.title !== 'Большая'); });
-  check('удалили большую заметку — лишние куски убраны из облака', Object.keys(store).length < keysBefore && Object.keys(store).every((k) => k === 'idx' || /^[tndm]\d+$/.test(k)));
+  check('удалили большую заметку — лишние куски убраны из облака', Object.keys(store).length < keysBefore && Object.keys(store).every((k) => k === 'idx' || k === 'rev' || /^[tndm]\d+$/.test(k)));
 
   // 10. облако повреждено (кусок записан наполовину): локальные данные не теряются, со второй попытки облако чинится
   const localBefore = JSON.stringify(db.tasks);
@@ -133,6 +133,32 @@
   // 11. id не совпадают между устройствами
   const ids = [newId(), newId(), newId()];
   check('новые id уникальны и не меньше текущего времени', new Set(ids).size === 3 && ids.every((i) => i >= Date.now() - 1000));
+
+  // 12. живая сверка: пока Rocky открыт, правка с другого устройства появляется сама
+  let revReads = 0, fullReads = 0;
+  const getItem0 = mock.getItem, getItems0 = mock.getItems;
+  mock.getItem = (k, cb) => { if (k === 'rev') revReads++; getItem0(k, cb); };
+  mock.getItems = (ks, cb) => { fullReads++; getItems0(ks, cb); };
+  pollDelay = POLL_MS; schedulePoll();
+  await sleep(1300);
+  const idleFull = fullReads, idleRev = revReads;
+  const t0 = Date.now();
+  fromDevice2((d) => { d.tasks.push({ id: Date.now(), title: 'Живая правка', due: null, rep: 'never', pos: -80, upd: Date.now() }); });
+  store.rev = 'dev2-' + Date.now(); // другое устройство обновило метку
+  let seenAfter = null;
+  while (Date.now() - t0 < 3000) {
+    if ([...document.querySelectorAll('#task-list b')].some((b) => b.textContent === 'Живая правка')) { seenAfter = Date.now() - t0; break; }
+    await sleep(25);
+  }
+  check(`живая сверка: правка с другого устройства появилась на экране сама (${seenAfter} мс)`, seenAfter !== null && seenAfter < 1200);
+  check(`без изменений читается только метка (${idleRev} раз за 1,3 с), данные не перечитываются`, idleFull === 0 && idleRev >= 2);
+  // 13. облако не отвечает — проверки реже, потом снова часто
+  offline = true; revReads = 0; await sleep(3000);
+  const offlineReads = revReads;
+  offline = false; await sleep(9000); revReads = 0; await sleep(1100);
+  check(`облако не отвечает — проверки реже (${offlineReads} за 3 с вместо 6), ожило — снова каждые полсекунды`, offlineReads <= 4 && revReads >= 2);
+  clearTimeout(pollTimer); pollTimer = null;
+  mock.getItem = getItem0; mock.getItems = getItems0;
 
   check('лимиты Telegram ни разу не нарушены', violations.length === 0);
 
