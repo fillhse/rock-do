@@ -50,6 +50,7 @@ h1{font-size:21px;margin-bottom:4px}
 .count{margin-bottom:10px}
 .count b{color:var(--text)}
 /* подсказка с Рокки спрятана над «Моими делами»; открывается тугим потягиванием вниз */
+#s-rock{user-select:none;-webkit-user-select:none} /* тянут мышью — текст не выделяется */
 .hero-wrap{height:0;overflow:hidden;--p:0;display:flex;flex-direction:column;justify-content:flex-end} /* выезжает сверху, как из-под края */
 .hero-wrap.open{--p:1}
 /* всё привязано к геометрии: по мере раскрытия подсказка проявляется из лёгкого размытия и подрастает,
@@ -455,7 +456,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.6.1';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -1132,9 +1133,10 @@ function endDrag(cancelled) {
 
 /* ===================== подсказка над «Моими делами» ===================== */
 /* Подсказка с Рокки спрятана: камень открывается сразу с «Моих дел». Открывается, как «потяни, чтобы
-   обновить», только пальцем: список в самом верху, тянем вниз — она туго выезжает и, если протянуть
-   на PULL_OPEN, открывается целиком; не дотянули — уходит обратно. Обычная прокрутка не меняется:
-   жест работает только там, где прокручивать вверх уже некуда. Уходим с камня — снова прячется. */
+   обновить»: список в самом верху, тянем вниз — она туго выезжает и, если протянуть на PULL_OPEN,
+   открывается целиком; не дотянули — уходит обратно. На телефоне — пальцем, на компьютере — так же
+   мышью или трекпадом: зажал и потянул вниз. Обычная прокрутка не меняется: жест работает только там,
+   где прокручивать вверх уже некуда. Уходим с камня — снова прячется. */
 const PULL_OPEN = 350; // тугое: почти полэкрана пальцем
 const heroWrap = () => $('hero-wrap');
 const heroFull = () => { const h = heroWrap().firstElementChild; return h.offsetHeight + parseFloat(getComputedStyle(h).marginBottom); };
@@ -1179,12 +1181,12 @@ function setHero(open, animate, v = 0) {
   if (animate) heroSpring(open ? heroFull() : 0, v); else heroFinish(open);
 }
 let pull = null;
-function pullStart(e) {
-  pull = !heroWrap().classList.contains('open') && $('s-rock').scrollTop <= 0 && e.touches.length === 1 ? { y: e.touches[0].clientY } : null;
+function pullStart(y) {
+  pull = !heroWrap().classList.contains('open') && $('s-rock').scrollTop <= 0 ? { y } : null;
 }
-function pullMove(e) {
+function pullMove(y, e) {
   if (!pull || drag) return; // поднятую карточку не трогаем
-  const d = e.touches[0].clientY - pull.y;
+  const d = y - pull.y;
   if (!pull.on) {
     // Пока направление не ясно (дрожь пальца), касание не трогаем: отменённое первое движение запрещает
     // браузеру прокрутку на весь жест — список «не листался», если палец, коснувшись, дрогнул вниз.
@@ -1207,7 +1209,9 @@ function pullMove(e) {
 function pullEnd() {
   if (!pull) return;
   const p = pull; pull = null;
-  if (p.on) setHero(p.ready && !drag, true, p.v || 0);
+  if (!p.on) return;
+  setHero(p.ready && !drag, true, p.v || 0);
+  suppressClick = true; setTimeout(() => { suppressClick = false; }, 300); // мышь отпустили над карточкой — это не клик по ней
 }
 // Колесо листает экран, где бы ни стоял курсор: над полями по бокам от колонки приложения (широкое окно
 // Telegram на Mac) и над нижней панелью — тоже. Над самим экраном листает браузер.
@@ -1559,10 +1563,13 @@ function haptic(kind) {
 }
 
 /* ===================== старт ===================== */
-$('s-rock').addEventListener('touchstart', pullStart, { passive: true });
-$('s-rock').addEventListener('touchmove', pullMove, { passive: false });
+$('s-rock').addEventListener('touchstart', (e) => { if (e.touches.length === 1) pullStart(e.touches[0].clientY); else pull = null; }, { passive: true });
+$('s-rock').addEventListener('touchmove', (e) => pullMove(e.touches[0].clientY, e), { passive: false });
 $('s-rock').addEventListener('touchend', pullEnd);
 $('s-rock').addEventListener('touchcancel', pullEnd);
+$('s-rock').addEventListener('mousedown', (e) => { if (e.button === 0 && !e.sourceCapabilities?.firesTouchEvents) pullStart(e.clientY); });
+document.addEventListener('mousemove', (e) => { if (pull && e.buttons & 1) pullMove(e.clientY, e); });
+document.addEventListener('mouseup', pullEnd);
 function renderAll() { renderTasks(); renderDone(); renderNotes(); renderStats(); }
 renderAll();
 renderRiver();

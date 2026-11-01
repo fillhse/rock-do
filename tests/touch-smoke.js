@@ -143,6 +143,24 @@
     const free1 = el.dispatchEvent(touchEv('touchmove', el, x, y + 3)), free2 = el.dispatchEvent(touchEv('touchmove', el, x, y - 30));
     el.dispatchEvent(touchEv('touchend', el, x, y - 30)); await sleep(300);
     check('в самом верху палец дрогнул вниз, потом повёл вверх — прокрутка не запрещена', free1 && free2 && heroH() === 0); }
+  // ноутбук: мышью или трекпадом — зажал и потянул вниз, так же туго, как пальцем; клик по делу после этого не срабатывает
+  async function mousePull(dist) {
+    document.querySelectorAll('.overlay.on').forEach((o) => o.classList.remove('on')); // синтетический click после броска в корзину попадает в «+»
+    go('notes'); go('rock'); sc.scrollTop = 0; await sleep(50);
+    const el = cards()[0].querySelector('b'), [x, y] = at(el, 20);
+    const me = (type, yy, t = el) => t.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: yy, button: 0, buttons: type === 'mouseup' ? 0 : 1 }));
+    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', clientX: x, clientY: y, button: 0 }));
+    me('mousedown', y);
+    for (let i = 1; i <= 12; i++) { const yy = y + dist * i / 12; me('mousemove', yy, document); document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', clientX: x, clientY: yy })); await sleep(16); }
+    me('mouseup', y + dist, document); document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'mouse', clientX: x, clientY: y + dist }));
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: x, clientY: y + dist }));
+    await sleep(700);
+  }
+  await mousePull(200);
+  check('ноутбук: потянул мышью на 200 px — мало, подсказка не открылась', heroH() === 0 && !document.getElementById('o-task').classList.contains('on'));
+  await mousePull(380);
+  check('ноутбук: потянул мышью на 380 px — подсказка открылась, редактор дела не открылся', heroH() > 100 && !document.getElementById('o-task').classList.contains('on'));
+  go('notes'); go('rock'); sc.scrollTop = 0;
   // Mac: колесо подсказку не открывает — ни докрутка снизу, ни прокрутка вверх в самом верху
   const wheel = (dy) => sc.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: dy }));
   sc.scrollTop = 0; await sleep(800);
