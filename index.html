@@ -48,6 +48,9 @@ h1{font-size:21px;margin-bottom:4px}
 .hero .phrase{font-size:18px;font-weight:700;line-height:1.3}
 .hero .hint{color:var(--accent2);font-size:12px;line-height:1.4;margin-top:8px}
 .count{margin-bottom:10px}
+/* подсказка с Рокки спрятана над «Моими делами»; открывается тугим потягиванием вниз */
+.hero-wrap{height:0;overflow:hidden}
+.hero-wrap.settle{transition:height .25s ease}
 .count b{color:var(--text)}
 
 /* карточки, которые можно взять пальцем */
@@ -259,13 +262,13 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 
   <!-- Камень: дела -->
   <section class="screen on" id="s-rock">
-    <div class="hero">
+    <div class="hero-wrap" id="hero-wrap"><div class="hero">
       <img src="img/rock-neutral.webp" alt="Рокки" width="360" height="322" fetchpriority="high">
       <div>
         <div class="phrase">Маленький шаг сегодня — большая гора завтра.</div>
         <div class="hint">Новые советы + Напоминания в Telegram</div>
       </div>
-    </div>
+    </div></div>
     <div class="sub count">Мои дела <b id="task-count">0</b></div>
     <div id="task-list"></div>
     <div id="reg-list"></div>
@@ -446,7 +449,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.4.6';
+const APP_VERSION = '1.5.3';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -569,11 +572,55 @@ const plural = (n, f) => f[n % 10 === 1 && n % 100 !== 11 ? 0 : n % 10 >= 2 && n
 /* ===================== каркас: экраны, окна, сообщения ===================== */
 let current = 'rock';
 function go(s) {
+  if (s === 'rock' && current !== 'rock') setHero(false); // вернулись на камень — снова с «Моих дел»
   current = s;
   document.querySelectorAll('.screen').forEach((e) => e.classList.toggle('on', e.id === 's-' + s));
   document.querySelectorAll('.nav [data-s]').forEach((b) => b.classList.toggle('active', b.dataset.s === s));
   if (s === 'profile') renderStats();
   if (s === 'river') renderRiver(); // локация зависит от времени
+}
+/* Подсказка открывается, как «потяни, чтобы обновить»: список в самом верху, тянем вниз — она туго
+   выезжает (идёт за пальцем в 2,5 раза медленнее) и, если протянуть на PULL_OPEN, открывается целиком.
+   Обычная прокрутка списка не меняется: жест работает только там, где прокручивать вверх уже некуда. */
+const PULL_OPEN = 140;
+const heroWrap = () => $('hero-wrap');
+const heroFull = () => { const h = heroWrap().firstElementChild; return h.offsetHeight + parseFloat(getComputedStyle(h).marginBottom); };
+function setHero(open, animate) {
+  const w = heroWrap();
+  w.classList.toggle('settle', !!animate);
+  w.classList.toggle('open', open);
+  w.style.height = open ? heroFull() + 'px' : '';
+}
+let pull = null;
+function pullStart(e) {
+  pull = !heroWrap().classList.contains('open') && $('s-rock').scrollTop <= 0 && e.touches.length === 1 ? { y: e.touches[0].clientY } : null;
+}
+function pullMove(e) {
+  if (!pull || drag) return; // поднятую карточку не трогаем
+  const d = e.touches[0].clientY - pull.y;
+  if (d <= 0 && !pull.on) { pull = null; return; } // повели вверх — это обычная прокрутка
+  if (e.cancelable) e.preventDefault(); // вверх прокручивать некуда — тянем подсказку
+  if (d < SLOP && !pull.on) return; // дрожь пальца на тапе
+  pull.on = true;
+  const w = heroWrap();
+  w.classList.remove('settle');
+  w.style.height = Math.min(heroFull(), Math.max(0, d - SLOP) * 0.4) + 'px';
+  const ready = d >= PULL_OPEN;
+  if (ready && !pull.ready) haptic('drag');
+  pull.ready = ready;
+}
+function pullEnd() {
+  if (!pull) return;
+  const p = pull; pull = null;
+  if (p.on) setHero(p.ready && !drag, true);
+}
+// трекпад и колесо (Mac): в самом верху — долгая прокрутка вверх
+let wheelPull = 0, wheelTimer;
+function pullWheel(e) {
+  if (heroWrap().classList.contains('open') || $('s-rock').scrollTop > 0 || e.deltaY >= 0) { wheelPull = 0; return; }
+  wheelPull -= e.deltaY;
+  clearTimeout(wheelTimer); wheelTimer = setTimeout(() => { wheelPull = 0; }, 300);
+  if (wheelPull > 600) { wheelPull = 0; setHero(true, true); }
 }
 function plusAction() { current === 'notes' ? openNote(null) : openTaskEditor(null); }
 const openOverlay = (id) => $(id).classList.add('on');
@@ -1451,6 +1498,11 @@ function haptic(kind) {
 }
 
 /* ===================== старт ===================== */
+$('s-rock').addEventListener('touchstart', pullStart, { passive: true });
+$('s-rock').addEventListener('touchmove', pullMove, { passive: false });
+$('s-rock').addEventListener('touchend', pullEnd);
+$('s-rock').addEventListener('touchcancel', pullEnd);
+$('s-rock').addEventListener('wheel', pullWheel, { passive: true });
 function renderAll() { renderTasks(); renderDone(); renderNotes(); renderStats(); }
 renderAll();
 renderRiver();

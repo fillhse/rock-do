@@ -115,6 +115,25 @@
   await sleep(HOLD_MS + 60);
   check('быстрый свайп — прокрутка, карточка не поднимается', !drag);
   c3.dispatchEvent(touchEv('touchend', c3, sx, sy - 40));
+  // подсказка с Рокки: спрятана; лёгкое потягивание вниз её не открывает, тугое — открывает
+  const heroH = () => document.getElementById('hero-wrap').offsetHeight;
+  async function pullDown(dist) {
+    sc.scrollTop = 0; await sleep(30);
+    const el = cards()[0].querySelector('b'), [x, y] = at(el, 20);
+    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', clientX: x, clientY: y, button: 0 }));
+    el.dispatchEvent(touchEv('touchstart', el, x, y));
+    for (let i = 1; i <= 12; i++) { el.dispatchEvent(touchEv('touchmove', el, x, y + dist * i / 12)); await sleep(16); }
+    el.dispatchEvent(touchEv('touchend', el, x, y + dist));
+    await sleep(400);
+  }
+  go('notes'); go('rock'); sc.scrollTop = 0; await sleep(50);
+  check('подсказка спрятана, камень начинается с «Моих дел»', heroH() === 0 && cards()[0].getBoundingClientRect().top < 120);
+  await pullDown(70);
+  check('лёгкое потягивание вниз — подсказка не открылась', heroH() === 0 && !drag);
+  await pullDown(220);
+  check('тугое потягивание вниз — подсказка открылась', heroH() > 100 && !drag);
+  go('notes'); go('rock'); await sleep(50);
+  check('ушли с камня и вернулись — подсказка снова спрятана', heroH() === 0);
   check('после жестов не осталось «призраков»', !drag && !document.querySelector('body > .card, body > .note-card, body > .done-wrap'));
 
   localStorage.removeItem('rockdo-demo');
