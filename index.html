@@ -64,13 +64,15 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
   display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;cursor:pointer}
 .checkbox.on{background:var(--accent2)}
 .hit{padding:11px;margin:-11px} /* палец попадает в кружок с запасом */
+/* регулярное дело, чей день ещё не настал: кружок и срок приглушены */
+.task.wait .checkbox{opacity:.35}
+.task.wait .due{color:var(--muted)}
 
 /* сделанные */
-.done-h{color:var(--muted);font-size:12px;margin:20px 0 10px}
-.done-h b{color:var(--text)}
+.sec-h{color:var(--muted);font-size:12px;margin:20px 0 10px}
+.sec-h b{color:var(--text)}
 .done-wrap{margin-bottom:10px}
 .done-card{display:flex;align-items:center;gap:12px;opacity:.62;margin-bottom:0}
-.done-card.rep{opacity:.78;background:#131228;border-color:rgba(111,56,255,.18)} /* повторы — чуть заметнее */
 .done-card .dt{flex:1;min-width:0}
 .done-card .dt span{color:var(--muted);font-size:11px}
 .ds-date{color:var(--muted);font-size:12px;margin:-6px 0 12px;white-space:pre-line;line-height:1.6}
@@ -266,6 +268,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
     </div>
     <div class="sub count">Мои дела <b id="task-count">0</b></div>
     <div id="task-list"></div>
+    <div id="reg-list"></div>
     <div id="done-list"></div>
   </section>
 
@@ -440,14 +443,14 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
 /* ===================== данные ===================== */
 // Ключ и формат не менять: в localStorage лежат дела и заметки пользователя.
 const STORE = 'rockdo-demo';
-const GUIDE = 'Привет! Я Рокки. Вот как тут всё устроено.\n\nКАМЕНЬ — твои дела. Жёлтый плюс создаёт дело, тап по кружку — сделано, тап по карточке — редактор. Удержи карточку, чтобы переставить её или бросить в корзину.\n\nПовторы работают как будильник: выбери дни (например Пн, Ср, Пт) — после выполнения дело уйдёт в «Сделанные» и само вернётся в нужный день. О сроках напомню в Telegram.\n\nСДЕЛАННЫЕ живут под списком дел. Тап по записи — меню: вернуть на камень или удалить из истории. Тап по галочке — сразу вернуть.\n\nКАМУШКИ — заметки вроде этой. Первая строка станет заголовком. В редакторе есть отмена и возврат. Удержи камушек и наведи на другой — они поменяются местами.\n\nРЕЧКА — раз в день брось камушек и получи историю-совет. Я перебираюсь по реке утром, днём и ночью — заходи посмотреть.\n\nПРОФИЛЬ — настройки и Гора сделанного: сегодня, неделя, всего.\n\nМаленький шаг сегодня — большая гора завтра.';
+const GUIDE = 'Привет! Я Рокки. Вот как тут всё устроено.\n\nКАМЕНЬ — твои дела. Жёлтый плюс создаёт дело, тап по кружку — сделано, тап по карточке — редактор. Удержи карточку, чтобы переставить её или бросить в корзину.\n\nРЕГУЛЯРНЫЕ — дела с повтором. Они работают как будильник: выбери дни (например Пн, Ср, Пт). Отметил — раз засчитан, а дело ждёт следующего дня в своём разделе. О сроках напомню в Telegram.\n\nСДЕЛАННЫЕ живут под списком дел. Тап по записи — меню: вернуть на камень или удалить из истории. Тап по галочке — сразу вернуть.\n\nКАМУШКИ — заметки вроде этой. Первая строка станет заголовком. В редакторе есть отмена и возврат. Удержи камушек и наведи на другой — они поменяются местами.\n\nРЕЧКА — раз в день брось камушек и получи историю-совет. Я перебираюсь по реке утром, днём и ночью — заходи посмотреть.\n\nПРОФИЛЬ — настройки и Гора сделанного: сегодня, неделя, всего.\n\nМаленький шаг сегодня — большая гора завтра.';
 const todayAt = (h, m) => new Date().setHours(h, m, 0, 0);
 
 function seedDb() {
@@ -576,32 +579,46 @@ function undoDelete() {
 }
 
 /* ===================== дела ===================== */
-// выполненный повтор не висит в списке до дня следующего раза
-const visibleTask = (t) => !isRepeating(t) || t.due <= Date.now() || sameDay(t.due, Date.now());
-function renderTasks() {
-  const list = $('task-list');
-  const ts = byPos(db.tasks).filter(visibleTask);
-  $('task-count').textContent = ts.length;
-  list.innerHTML = ts.length ? ts.map((t) => `
-    <div class="card task" id="task-${t.id}" onpointerdown="pressStart(event,${t.id},'task')" oncontextmenu="return false">
+// три раздела камня: «Мои дела» (разовые), «Регулярные» (с повтором), «Сделанные» (история)
+const isWaiting = (t) => t.due > Date.now() && !sameDay(t.due, Date.now()); // день регулярного ещё не настал
+function taskCard(t) {
+  const wait = isRepeating(t) && isWaiting(t);
+  return `
+    <div class="card task${wait ? ' wait' : ''}" id="task-${t.id}" onpointerdown="pressStart(event,${t.id},'task')" oncontextmenu="return false">
       <div class="hit" onclick="if(!suppressClick)completeTask(${t.id})"><div class="checkbox" id="cb-${t.id}"></div></div>
       <div class="tt" onclick="if(!suppressClick)openTaskEditor(${t.id})"><b></b></div>
       ${t.due ? `<span class="due" onclick="if(!suppressClick)openTaskEditor(${t.id})">${fmtDue(t.due)}</span>` : ''}
-    </div>`).join('')
-    : '<div class="empty"><img src="img/rock-sleep.webp" alt=""><div>Пока камень свободен.<br>Положи на него первое дело.</div></div>';
-  ts.forEach((t) => { list.querySelector(`#task-${t.id} b`).textContent = t.title; });
+    </div>`;
+}
+function renderTaskList(box, ts) {
+  box.innerHTML = ts.map(taskCard).join('');
+  ts.forEach((t) => { box.querySelector(`#task-${t.id} b`).textContent = t.title; });
+}
+function renderTasks() {
+  const all = byPos(db.tasks);
+  const mine = all.filter((t) => !isRepeating(t)), regular = all.filter(isRepeating);
+  $('task-count').textContent = mine.length;
+  renderTaskList($('task-list'), mine);
+  if (!all.length) $('task-list').innerHTML = '<div class="empty"><img src="img/rock-sleep.webp" alt=""><div>Пока камень свободен.<br>Положи на него первое дело.</div></div>';
+  const reg = $('reg-list'); // порядок в обоих разделах ручной — перетаскиванием
+
+  reg.innerHTML = regular.length ? `<div class="sec-h">Регулярные <b>${regular.length}</b></div><div></div>` : '';
+  if (regular.length) renderTaskList(reg.lastElementChild, regular);
 }
 
 function completeTask(id) {
   const t = db.tasks.find((x) => x.id === id);
   const card = $('task-' + id);
-  if (!t || !card || card.classList.contains('done')) return; // повторный тап во время анимации
+  if (!t || !card || card.dataset.busy) return; // повторный тап во время анимации
+  const regular = isRepeating(t);
+  if (regular && isWaiting(t)) { toast('Следующий раз — ' + fmtDue(t.due) + '. Отметишь в этот день.'); return; }
+  card.dataset.busy = '1';
   haptic('success');
   $('cb-' + id).classList.add('on');
   $('cb-' + id).textContent = '✓';
-  card.classList.add('done');
+  if (!regular) card.classList.add('done'); // разовое уезжает в «Сделанные», регулярное остаётся в своём разделе
   setTimeout(() => {
-    if (isRepeating(t)) { // этот раз засчитан, дело ждёт следующего
+    if (regular) { // этот раз засчитан, дело ждёт следующего
       db.done.push({ id: newId(), title: t.title, at: Date.now(), fromRepeat: true, taskId: t.id, prevDue: t.due, rep: t.rep });
       t.due = nextOcc(t.due, t.rep, Date.now(), t.mday);
       toast('Сегодняшний раз засчитан! Следующая — ' + fmtDue(t.due) + '.', true);
@@ -614,17 +631,17 @@ function completeTask(id) {
   }, 400);
 }
 
-/* сделанные: повторы сверху, показываем последние 30, счётчик — полный */
+/* сделанные: свежие сверху, показываем последние 30, счётчик — полный */
 function renderDone() {
   const all = db.done.filter((d) => d.title); // старые записи без названия идут только в статистику
-  const items = [...all].sort((a, b) => (b.fromRepeat ? 1 : 0) - (a.fromRepeat ? 1 : 0) || b.at - a.at).slice(0, 30);
+  const items = [...all].sort((a, b) => b.at - a.at).slice(0, 30);
   const sec = $('done-list');
-  sec.innerHTML = items.length ? `<div class="done-h">Сделанные <b>${all.length}</b></div>` + items.map((d) => `
+  sec.innerHTML = items.length ? `<div class="sec-h">Сделанные <b>${all.length}</b></div>` + items.map((d) => `
     <div class="done-wrap" id="done-${d.id}" onpointerdown="pressStart(event,${d.id},'done')"
          onclick="if(!suppressClick)openDoneSheet(${d.id})" oncontextmenu="return false">
-      <div class="card done-card ${d.fromRepeat ? 'rep' : ''}">
+      <div class="card done-card">
         <div class="hit" onclick="event.stopPropagation();if(!suppressClick)restoreDone(${d.id})"><div class="checkbox on">✓</div></div>
-        <div class="dt"><b></b><span>${d.fromRepeat ? 'Следующая: ' + fmtDue(nextDueOf(d)) : stamp(d.at)}</span></div>
+        <div class="dt"><b></b><span>${stamp(d.at)}${d.fromRepeat ? ' · регулярное' : ''}</span></div>
       </div>
     </div>`).join('') : '';
   items.forEach((d) => { sec.querySelector(`#done-${d.id} b`).textContent = d.title; });
@@ -1001,8 +1018,9 @@ function layoutRect(el) {
 }
 function reorder(x, y) {
   if (drag.type === 'done') return; // сделанные не переставляются — только в корзину
-  const sorted = byPos(drag.type === 'task' ? db.tasks : db.notes);
-  const me = sorted.find((it) => it.id === drag.id);
+  const me = (drag.type === 'task' ? db.tasks : db.notes).find((it) => it.id === drag.id);
+  // дело переставляется только внутри своего раздела: «Мои дела» или «Регулярные»
+  const sorted = drag.type === 'task' ? byPos(db.tasks).filter((t) => !isRepeating(t) === !isRepeating(me)) : byPos(db.notes);
   const rectOf = (it) => { const el = it !== me && dragEl(it.id); return el ? layoutRect(el) : null; };
   let order;
   if (drag.type === 'task') { // столбец: встаём перед первой карточкой, чья середина ниже

@@ -63,6 +63,28 @@
   check('тап по делу — редактор', document.getElementById('o-task').classList.contains('on'));
   closeOverlay('o-task');
 
+  // три раздела: «Мои дела», «Регулярные», «Сделанные»
+  const regTitles = () => [...document.querySelectorAll('#reg-list .card.task b')].map((b) => b.textContent);
+  const regCard = (title) => [...document.querySelectorAll('#reg-list .card.task')].find((c) => c.querySelector('b').textContent === title);
+  const head = (sel) => (document.querySelector(sel + ' .sec-h') || {}).textContent || '';
+  const reg0 = regTitles()[0];
+  check('три раздела: регулярное — в «Регулярных», не в «Моих делах»',
+    !!reg0 && head('#reg-list').startsWith('Регулярные') && !titles().includes(reg0));
+  const due0 = regCard(reg0).querySelector('.due').textContent, doneBefore = db.done.length;
+  if (!regCard(reg0).classList.contains('wait')) {
+    await tap(at(regCard(reg0).querySelector('.checkbox'))); await sleep(500);
+    check('регулярное: тап — раз засчитан, дело остаётся в «Регулярных» со следующей датой',
+      regTitles().includes(reg0) && regCard(reg0).querySelector('.due').textContent !== due0 &&
+      db.done.length === doneBefore + 1 && head('#done-list').startsWith('Сделанные'));
+  }
+  const doneNow = db.done.length;
+  await tap(at(regCard(reg0).querySelector('.checkbox')));
+  check('регулярное: заранее, до своего дня, не отмечается', regCard(reg0).classList.contains('wait') && db.done.length === doneNow);
+  const mine0 = titles()[0], m0 = document.querySelector('#task-list .card.task b'), pm = at(m0, 20);
+  const pr = at(regCard(reg0));
+  await hold(m0, pm, [pm[0], pr[1] + 10]);
+  check('перенос не переводит дело в другой раздел', titles().includes(mine0) && !regTitles().includes(mine0) && regTitles().includes(reg0));
+
   // перенос
   for (let i = 1; i <= 14; i++) db.tasks.push({ id: 900 + i, title: 'Тест ' + i, due: null, rep: 'never', pos: 100 + i });
   renderTasks();
