@@ -575,28 +575,7 @@ const plural = (n, f) => f[n % 10 === 1 && n % 100 !== 11 ? 0 : n % 10 >= 2 && n
 let current = 'rock';
 // камень открывается сразу с «Моих дел»; подсказка с Рокки — выше, до неё можно долистать
 const rockTopOffset = () => $('rock-main').offsetTop - parseFloat(getComputedStyle($('s-rock')).paddingTop);
-function rockToTop() { $('s-rock').scrollTop = rockRest = rockTopOffset(); }
-/* Подсказка над «Моими делами» открывается «тяжелее» обычной прокрутки. Саму прокрутку не трогаем никогда
-   (перехват на ходу — рывок), решаем только когда она остановилась:
-   - пружинка: движение вверх, начатое в списке, даже если с разгона выкатило подсказку, — плавно возвращается
-     к «Моим делам»; подсказку открывает только отдельное движение вверх уже от них;
-   - защёлка: отпустил, когда подсказка открыта меньше чем на 2/3, — уезжает обратно, иначе открывается целиком.
-   Полуоткрытой подсказка не остаётся. Одинаково для пальца и трекпада. */
-const HINT_OPEN = 2 / 3, SCROLL_IDLE_MS = 160;
-let rockRest = 0, rockTouching = false, rockIdleTimer;
-function onRockScroll() {
-  clearTimeout(rockIdleTimer);
-  rockIdleTimer = setTimeout(rockIdle, SCROLL_IDLE_MS);
-}
-function rockIdle() {
-  const sc = $('s-rock'), off = rockTopOffset();
-  if (rockTouching || drag || !sc.classList.contains('on')) return; // палец ещё на экране — решим, когда отпустит
-  const fromList = rockRest > off + 1; // движение началось в списке
-  rockRest = sc.scrollTop;
-  if (sc.scrollTop >= off - 0.5) return; // в списке — ничего не делаем
-  if (fromList) sc.scrollTo({ top: off, behavior: 'smooth' }); // пружинка
-  else if (sc.scrollTop > 0.5) sc.scrollTo({ top: (off - sc.scrollTop) / off >= HINT_OPEN ? 0 : off, behavior: 'smooth' }); // защёлка
-}
+function rockToTop() { $('s-rock').scrollTop = rockTopOffset(); }
 function go(s) {
   const wasRock = current === 'rock' && $('s-rock').classList.contains('on');
   current = s;
@@ -1026,8 +1005,7 @@ function pressStart(e, id, type) {
     }
     if (lifted) { if (ev.cancelable) ev.preventDefault(); dragMove(p.clientX, p.clientY); }
   };
-  // отпускание приходит сюда, а не на экран камня: карточка под пальцем могла выпасть из страницы при перерисовке
-  const up = (ev) => { finish(); if (touch) rockTouching = false; if (lifted) endDrag(ev.type === CANCEL); };
+  const up = (ev) => { finish(); if (lifted) endDrag(ev.type === CANCEL); };
   function finish() {
     clearTimeout(timer);
     host.removeEventListener(MOVE, move); host.removeEventListener(UP, up); host.removeEventListener(CANCEL, up);
@@ -1504,9 +1482,6 @@ function renderAll() { renderTasks(); renderDone(); renderNotes(); renderStats()
 renderAll();
 renderRiver();
 rockToTop();
-$('s-rock').addEventListener('scroll', onRockScroll, { passive: true });
-$('s-rock').addEventListener('touchstart', () => { rockTouching = true; }, { passive: true });
-for (const ev of ['touchend', 'touchcancel']) $('s-rock').addEventListener(ev, () => { rockTouching = false; onRockScroll(); }, { passive: true });
 const tz = -new Date().getTimezoneOffset() / 60;
 $('tz-val').textContent = `(UTC${tz >= 0 ? '+' : ''}${tz})`;
 $('ver-val').textContent = 'версия ' + APP_VERSION;
