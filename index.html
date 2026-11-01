@@ -491,7 +491,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.8.5';
+const APP_VERSION = '1.8.6';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -681,19 +681,18 @@ function renderTaskList(box, ts) {
 /* «Регулярные» идут распорядком дня, сами (в «Моих делах» порядок ручной — перетаскиванием):
    - пропущенные с прошлых дней — первыми, их надо не потерять;
    - сегодняшние — по времени: утренние сверху;
-   - без времени — в середине дня, в 13:00, после дел ровно на 13:00: не вытесняют утренние и обеденные;
+   - без времени — расходятся по второй половине дня: первое как будто в 14:00, каждое следующее на
+     30 минут позже, с 18:00 — все остальные в 18:00. На одинаковом времени дело со временем — раньше;
    - ждущие своего дня — в конце, ближайшие раньше.
    При равенстве — порядок, в котором их расставили. */
-const NO_TIME_AT = 13 * 60 + 0.5;
-function dayTimeKey(t) {
-  if (isWaiting(t)) return [2, t.due];
-  if (new Date(t.due).setHours(0, 0, 0, 0) < new Date().setHours(0, 0, 0, 0)) return [0, t.due];
-  const d = new Date(t.due);
-  return [1, t.allDay ? NO_TIME_AT : d.getHours() * 60 + d.getMinutes()];
-}
-function byDayTime(a, b) {
-  const x = dayTimeKey(a), y = dayTimeKey(b);
-  return x[0] - y[0] || x[1] - y[1] || a.pos - b.pos;
+const NO_TIME_FROM = 14 * 60, NO_TIME_STEP = 30, NO_TIME_TO = 18 * 60;
+function byDayTime(list) {
+  const today = new Date().setHours(0, 0, 0, 0);
+  const group = (t) => (isWaiting(t) ? 2 : new Date(t.due).setHours(0, 0, 0, 0) < today ? 0 : 1);
+  const untimed = byPos(list.filter((t) => group(t) === 1 && t.allDay)); // их «время» — по очереди
+  const at = new Map(untimed.map((t, i) => [t, Math.min(NO_TIME_FROM + i * NO_TIME_STEP, NO_TIME_TO) + 0.5]));
+  const key = (t) => { const g = group(t), d = new Date(t.due); return [g, g !== 1 ? t.due : at.get(t) ?? d.getHours() * 60 + d.getMinutes()]; };
+  return [...list].sort((a, b) => { const x = key(a), y = key(b); return x[0] - y[0] || x[1] - y[1] || a.pos - b.pos; });
 }
 function renderTasks() {
   const all = byPos(db.tasks);
@@ -705,7 +704,7 @@ function renderTasks() {
   // раздел виден всегда; счётчик — сколько осталось на сегодня (ждущие своего дня не в счёт)
   const left = regular.filter((t) => !isWaiting(t)).length;
   reg.innerHTML = `<div class="sec-h">Регулярные <b>${left}</b></div><div></div>`;
-  renderTaskList(reg.lastElementChild, [...regular].sort(byDayTime));
+  renderTaskList(reg.lastElementChild, byDayTime(regular));
 }
 
 function completeTask(id) {
