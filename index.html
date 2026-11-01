@@ -10,8 +10,18 @@
 <link rel="icon" type="image/png" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 <script>
-/* Telegram Mini App: SDK грузим только внутри Telegram — вне его приложение не зависит от сети */
-const IN_TG = /tgWebApp/.test(location.hash) || !!window.TelegramWebviewProxy;
+/* Telegram Mini App: SDK грузим только внутри Telegram — вне его приложение не зависит от сети.
+   Признаки: данные запуска в адресе (после перезагрузки SDK хранит их в sessionStorage),
+   мост Android/iOS (TelegramWebviewProxy), мост Desktop (external.notify), iframe в Telegram Web */
+const IN_TG = (() => {
+  try {
+    return /tgWebApp/.test(location.hash) || /tgWebApp/.test(location.search) ||
+      !!window.TelegramWebviewProxy || !!(window.external && 'notify' in window.external) ||
+      /tgWebApp/.test(sessionStorage.getItem('__telegram__initParams') || '') ||
+      (window.parent !== window && /(^|\.)telegram\.org$|^web\.telegram\.org$/.test(document.referrer.split('/')[2] || ''));
+  } catch (e) { return false; }
+})();
+const tgTry = (fn) => { try { fn(); } catch (e) {} }; // одна упавшая команда не ломает остальные
 if (IN_TG) {
   document.documentElement.classList.add('tg');
   const s = document.createElement('script');
@@ -19,22 +29,28 @@ if (IN_TG) {
   s.onload = () => {
     const tg = window.Telegram && Telegram.WebApp;
     if (!tg) return;
-    try {
-      tg.ready(); tg.expand();
-      // иначе свайп вниз при перетаскивании карточек и прокрутке колёс закрывает приложение
-      if (tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes();
-      if (tg.isVersionAtLeast('6.1')) { tg.setHeaderColor('#030912'); tg.setBackgroundColor('#030912'); }
-      if (tg.isVersionAtLeast('7.10')) tg.setBottomBarColor('#050b14');
-      // Fullscreen: не залезать под статус-бар, кнопки ✕/⋯ Telegram и жестовую полоску
-      const insets = () => {
-        const a = tg.safeAreaInset || {}, c = tg.contentSafeAreaInset || {};
-        const st = document.documentElement.style;
-        st.setProperty('--top', ((a.top || 0) + (c.top || 0)) + 'px');
-        st.setProperty('--bot', ((a.bottom || 0) + (c.bottom || 0)) + 'px');
-      };
+    // Fullscreen: не залезать под статус-бар, кнопки Close/⋮ Telegram и жестовую полоску
+    const insets = () => {
+      const a = tg.safeAreaInset || {}, c = tg.contentSafeAreaInset || {};
+      const st = document.documentElement.style;
+      st.setProperty('--top', ((a.top || 0) + (c.top || 0)) + 'px');
+      st.setProperty('--bot', ((a.bottom || 0) + (c.bottom || 0)) + 'px');
+    };
+    tgTry(() => {
+      ['safeAreaChanged', 'contentSafeAreaChanged', 'fullscreenChanged', 'viewportChanged']
+        .forEach((ev) => tg.onEvent(ev, insets));
       insets();
-      ['safeAreaChanged', 'contentSafeAreaChanged', 'fullscreenChanged'].forEach((ev) => tg.onEvent(ev, insets));
-    } catch (e) {}
+      // переспрашиваем отступы уже после подписки — ответ точно не потеряется
+      Telegram.WebView.postEvent('web_app_request_safe_area');
+      Telegram.WebView.postEvent('web_app_request_content_safe_area');
+    });
+    tgTry(() => tg.ready());
+    tgTry(() => tg.expand());
+    // иначе свайп вниз при перетаскивании карточек и прокрутке колёс закрывает приложение
+    tgTry(() => tg.isVersionAtLeast('7.7') && tg.disableVerticalSwipes());
+    tgTry(() => tg.isVersionAtLeast('6.1') && tg.setHeaderColor('#030912'));
+    tgTry(() => tg.isVersionAtLeast('6.1') && tg.setBackgroundColor('#030912'));
+    tgTry(() => tg.isVersionAtLeast('7.10') && tg.setBottomBarColor('#050b14'));
   };
   document.head.appendChild(s);
 }
@@ -69,6 +85,9 @@ body{background:#0b0e16;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',
 /* в Telegram (в т.ч. Desktop с широким окном) — всегда на весь экран, без рамки */
 html.tg .phone{width:100%;height:100%;max-height:none;border-radius:0;box-shadow:none}
 html.tg .demo-note{display:none}
+/* запасной вариант: те же отступы, которые SDK Telegram сам кладёт в CSS-переменные */
+html.tg{--top:calc(var(--tg-safe-area-inset-top,0px) + var(--tg-content-safe-area-inset-top,0px));
+  --bot:calc(var(--tg-safe-area-inset-bottom,0px) + var(--tg-content-safe-area-inset-bottom,0px))}
 
 .screen{position:absolute;inset:0;overflow-y:auto;padding:calc(18px + var(--top)) 16px calc(116px + var(--bot));display:none}
 .screen.on{display:block}
@@ -289,10 +308,12 @@ textarea.input.nt-title{min-height:0;height:auto;font-size:15px;line-height:1.45
 /* toast */
 .toast{position:absolute;left:50%;bottom:calc(102px + var(--bot));transform:translateX(-50%);z-index:50;
   background:#1d1633;border:1px solid var(--accent);padding:10px 18px;border-radius:12px;
-  font-size:13px;display:none;align-items:center;gap:10px;animation:up .2s ease;
+  font-size:13px;display:none;align-items:center;gap:10px;animation:toastin .2s ease;
   width:max-content;max-width:calc(100% - 32px);line-height:1.4}
 .toast.on{display:flex}
 .toast img{width:30px}
+.toast span{white-space:pre-line}
+@keyframes toastin{from{transform:translate(-50%,30px);opacity:0}} /* своя анимация: общая `up` сбивала центрирование */
 
 .modal-back{position:absolute;inset:0;background:rgba(0,0,0,.6);z-index:30;display:none;align-items:flex-end}
 .modal-back.on{display:flex}
@@ -392,7 +413,7 @@ textarea.input.nt-title{min-height:0;height:auto;font-size:15px;line-height:1.45
       <div class="setting" onclick="toast('Поддержка скоро. Пока пиши прямо боту.')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.4 2.6c-.7.3-1 .8-1 1.6"/><circle cx="12" cy="16.6" r=".4" fill="currentColor"/></svg>
         <span class="name">Помощь и поддержка<span class="sub2">Ответы на вопросы и связь с нами</span></span><span class="chev">›</span></div>
-      <div class="setting" onclick="toast('rock do · версия 1.1.0')">
+      <div class="setting" onclick="aboutToast()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5"/><circle cx="12" cy="8" r=".4" fill="currentColor"/></svg>
         <span class="name">О приложении<span class="sub2">Условия, политика и версия</span></span><span class="val">версия 1.1.0</span><span class="chev">›</span></div>
     </div>
@@ -1091,6 +1112,18 @@ function renderStats() {
   document.getElementById('st-today').textContent = today;
   document.getElementById('st-week').textContent = week;
   document.getElementById('st-total').textContent = db.done.length;
+}
+// «О приложении»: версия сборки (= VERSION в sw.js) и диагностика Telegram
+const BUILD = 'v5';
+function aboutToast() {
+  const tg = window.Telegram && Telegram.WebApp;
+  let s = 'rock do · версия 1.1.0 (' + BUILD + ')';
+  if (tg && tg.platform !== 'unknown') {
+    const a = tg.safeAreaInset || {}, c = tg.contentSafeAreaInset || {};
+    s += `\nTelegram ${tg.version} · ${tg.platform}${tg.isFullscreen ? ' · fullscreen' : ''}` +
+         `\nотступы: сверху ${a.top | 0}+${c.top | 0}, снизу ${a.bottom | 0}+${c.bottom | 0}`;
+  } else if (IN_TG) s += '\nTelegram: SDK не загрузился';
+  toast(s);
 }
 const tz = -new Date().getTimezoneOffset() / 60;
 document.getElementById('tz-val').textContent = `(UTC${tz >= 0 ? '+' : ''}${tz})`;
