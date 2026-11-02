@@ -15,7 +15,7 @@
 :root{
   --bg1:#030912; --bg2:#07131c;
   --card:rgba(255,255,255,.05); --card2:rgba(255,255,255,.08);
-  --accent:#4e20c8; --accent2:#6f38ff; --orange:#ffa42e;
+  --accent:#4e20c8; --accent2:#6f38ff; --ink:#a78bfa; --orange:#ffa42e;
   --text:#eef0f6; --muted:#8b93a7; --radius:14px;
   /* отступы от краёв: в полноэкранном режиме Telegram — статус-бар и его кнопки сверху, жестовая полоска снизу.
      Значения кладёт сам SDK Telegram; вне Telegram они 0 */
@@ -37,7 +37,7 @@ body{background:var(--bg1);color:var(--text);font-size:14px;
 h1{font-size:21px;margin-bottom:4px}
 .sub{color:var(--muted);font-size:12px;margin-bottom:16px}
 .card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);
-  padding:13px 14px;margin-bottom:10px}
+  padding:12px 16px;margin-bottom:10px}
 .empty{text-align:center;padding:30px 20px;color:var(--muted)}
 .empty img{width:130px;margin-bottom:14px}
 
@@ -95,9 +95,9 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 .trash.show{opacity:1;transform:none}
 .trash-hint{color:var(--muted);font-size:12px;text-align:center;line-height:1.45;transition:opacity .15s}
 .trash-btn{width:66px;height:66px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;
-  background:radial-gradient(circle at 50% 32%,#ff5c6c,#c01430);border:2px solid rgba(255,120,130,.6);
-  box-shadow:0 0 30px rgba(255,60,80,.45),0 8px 22px rgba(0,0,0,.4);transition:all .18s}
-.trash.hot .trash-btn{transform:scale(1.22);box-shadow:0 0 60px rgba(255,70,90,.8),0 8px 22px rgba(0,0,0,.4)}
+  background:#d9303f;
+  box-shadow:0 8px 22px rgba(0,0,0,.4);transition:all .18s}
+.trash.hot .trash-btn{transform:scale(1.16);background:#ef4453}
 .trash.hot .trash-hint{opacity:0}
 .trash-btn svg{width:26px;height:26px}
 
@@ -107,29 +107,29 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
   padding:14px 16px;display:flex;align-items:center;justify-content:space-between;
   opacity:0;pointer-events:none;transform:translateY(16px);transition:all .2s ease}
 .snack.on{opacity:1;pointer-events:auto;transform:none}
-.snack button{background:none;border:none;color:var(--accent2);font-weight:600;font-size:14px;cursor:pointer}
+.snack button{background:none;border:none;color:var(--ink);font-weight:600;font-size:14px;cursor:pointer}
 
 /* кнопки */
 .btn{display:block;width:100%;border:none;cursor:pointer;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;
-  font-size:15px;font-weight:600;padding:14px;border-radius:var(--radius);margin-top:8px}
+  background:var(--accent2);color:#fff;
+  font-size:15px;font-weight:600;padding:16px;border-radius:var(--radius);margin-top:8px}
 .btn:disabled{opacity:.45}
 .btn.dark{background:var(--card2)}
 .btn.small{width:auto;padding:8px 16px;font-size:13px;display:inline-block;margin-top:0}
 
 /* нижняя навигация */
 .nav{position:absolute;left:0;right:0;bottom:0;height:calc(76px + var(--bot));z-index:10;
-  background:rgba(5,11,20,.96);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,.05);
+  background:#050b14;border-top:1px solid rgba(255,255,255,.05);
   display:flex;align-items:center;justify-content:space-around;padding:0 calc(var(--side) - 10px) var(--bot)}
 .nav button{background:none;border:none;color:#6b7280;font-size:10px;letter-spacing:.02em;cursor:pointer;
   flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-height:48px;justify-content:center;
   transition:color .15s}
-.nav button.active{color:var(--accent2)}
+.nav button.active{color:var(--ink)}
 .nav svg{width:23px;height:23px;transition:transform .12s}
 .nav button:active svg{transform:scale(.86)}
 .nav .plus{width:58px;height:58px;border-radius:50%;transform:translateY(-14px);
-  background:linear-gradient(160deg,#ffd44d,#ffb52e);display:flex;align-items:center;justify-content:center;
-  box-shadow:0 0 26px rgba(255,200,70,.4),0 6px 16px rgba(0,0,0,.35);transition:transform .12s}
+  background:#ffc23d;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 6px 16px rgba(0,0,0,.35);transition:transform .12s}
 .nav button:active .plus{transform:translateY(-14px) scale(.92)}
 .nav .plus svg{width:24px;height:24px;color:#1c1303}
 
@@ -139,10 +139,10 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 .overlay.on{display:block}
 .overlay.col.on{display:flex;flex-direction:column}
 @keyframes up{from{transform:translateY(30px);opacity:0}}
-.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
 .close{background:var(--card2);border:none;color:var(--text);width:34px;height:34px;border-radius:50%;font-size:15px;cursor:pointer}
 .row{display:flex;justify-content:space-between;align-items:center;background:var(--card);
-  border:1px solid rgba(255,255,255,.08);border-radius:var(--radius);padding:14px;margin-bottom:12px;cursor:pointer}
+  border:1px solid rgba(255,255,255,.08);border-radius:var(--radius);padding:16px;margin-bottom:12px;cursor:pointer}
 .row .val,.chev{color:var(--muted)}
 .rockhint{display:flex;gap:12px;align-items:center}
 .rockhint img{width:56px}
@@ -150,10 +150,10 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 
 /* окно дела */
 .t-title{width:100%;background:var(--card);color:var(--text);border:1px solid rgba(255,255,255,.08);
-  border-radius:var(--radius);padding:16px 14px;margin:14px 0 12px;outline:none;font:inherit;font-size:15px;
+  border-radius:var(--radius);padding:16px;margin:16px 0 12px;outline:none;font:inherit;font-size:15px;
   line-height:1.45;resize:none;overflow:hidden;min-height:calc(1.45em + 34px)} /* одна строка; растёт под длинный текст */
 .t-title:focus{border-color:var(--accent2)}
-#o-task .row,#o-task .btn{padding-top:17px;padding-bottom:17px}
+#o-task .row,#o-task .btn{padding-top:16px;padding-bottom:16px}
 #o-task .rockhint{margin:30px 0 16px}
 
 /* напоминание: колёса даты и времени */
@@ -186,7 +186,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .note-body{font-size:12px;color:var(--muted);line-height:1.45;white-space:pre-line;word-break:break-word;
   display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
-.note-date{color:#525d70;font-size:10px;margin-top:8px}
+.note-date{color:#525d70;font-size:11px;margin-top:8px}
 
 /* редактор камушка */
 .ne-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}
@@ -195,13 +195,13 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
   border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .ne-ic:active{background:var(--card2)}
 .ne-ic:disabled{opacity:.3}
-.ne-ic.ok{color:var(--accent2);font-size:23px}
+.ne-ic.ok{color:var(--ink);font-size:23px}
 .ne-title{background:none;border:none;outline:none;color:var(--text);font-size:27px;font-weight:700;width:100%;margin-bottom:10px}
 .ne-meta{color:#525d70;font-size:12px;margin-bottom:18px;display:flex;gap:10px;align-items:center}
 .ne-sep{opacity:.5}
 .ne-body{background:none;border:none;outline:none;color:var(--text);resize:none;
   font-size:15px;line-height:1.55;flex:1;font-family:inherit;width:100%}
-.ne-title::placeholder,.ne-body::placeholder{color:#3a4254}
+.ne-title::placeholder,.ne-body::placeholder{color:var(--muted)}
 
 /* речка: фон-локация на весь экран, текст поверх */
 .screen.river{padding:0;overflow:hidden}
@@ -211,7 +211,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
              rgba(3,9,18,.5) 55%,rgba(3,9,18,.88) 72%,rgba(3,9,18,.97) 100%)}
 .rv-top{position:absolute;top:0;left:0;right:0;padding:calc(18px + var(--top)) var(--side) 0;z-index:2}
 .rv-chip{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:9px 15px;border-radius:22px;
-  background:rgba(10,14,24,.55);backdrop-filter:blur(8px);color:#ffd479;font-size:13px;font-weight:600}
+  background:rgba(10,14,24,.72);color:#ffd479;font-size:13px;font-weight:600}
 .rv-chip svg{width:16px;height:16px;display:block}
 .rv-bottom{position:absolute;left:0;right:0;bottom:calc(96px + var(--bot));padding:0 var(--side);z-index:2}
 .rv-title{font-size:27px;font-weight:700;margin-bottom:8px;text-shadow:0 2px 14px rgba(0,0,0,.65)}
@@ -220,19 +220,19 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 .rv-btn{display:flex;align-items:center;justify-content:center;gap:10px;margin:0;padding:17px;font-size:17px;border-radius:18px}
 .rv-btn img{width:24px;height:auto}
 .rv-streak{position:absolute;top:calc(18px + var(--top));right:var(--side);z-index:3;padding:8px 12px;border-radius:22px;
-  background:rgba(10,14,24,.55);backdrop-filter:blur(8px);font-size:12px}
+  background:rgba(10,14,24,.72);font-size:12px}
 .rv-streak b{color:var(--orange)}
 /* камушек дня: выбор, карточка, бросок */
 .rv-pebs{display:flex;flex-direction:column;gap:7px;max-height:32vh;overflow-y:auto;margin-bottom:12px}
 .rv-peb{display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:13px;cursor:pointer;
-  background:rgba(10,14,24,.62);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(6px);transition:all .15s}
+  background:rgba(10,14,24,.78);border:1px solid rgba(255,255,255,.08);transition:all .15s}
 .rv-peb img{width:22px;opacity:.55;transition:all .15s}
 .rv-peb b{font-weight:500;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rv-peb small{color:var(--orange);font-size:11px;flex:none}
 .rv-peb.on{border-color:var(--accent2);background:rgba(111,56,255,.28)}
 .rv-peb.on img{opacity:1;transform:scale(1.15) rotate(-12deg)}
 .rv-today{display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:14px;margin-bottom:14px;
-  background:rgba(10,14,24,.66);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(8px)}
+  background:rgba(10,14,24,.8);border:1px solid rgba(255,255,255,.1)}
 .rv-today .t{flex:1;min-width:0}
 .rv-today .t small{display:block;color:var(--muted);font-size:11px;margin-bottom:2px}
 .rv-today .t b{font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -255,21 +255,21 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 .p-hero{text-align:center;padding:6px 0 18px}
 .p-hero img{width:150px}
 .p-name{font-size:26px;font-weight:700;margin-top:10px}
-.p-sub{color:var(--muted);font-size:13px;line-height:1.45;margin-top:8px;padding:0 26px}
+.p-sub{color:var(--muted);font-size:14px;line-height:1.45;margin-top:8px;padding:0 26px}
 .p-label{font-size:15px;font-weight:600;margin:4px 0 10px}
 .setting{display:flex;align-items:center;gap:13px;padding:13px 2px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer;min-height:48px}
 .setting:last-child{border-bottom:none}
 .setting svg{width:20px;height:20px;color:var(--accent2);flex:none}
 .setting .name{flex:1;font-size:14px}
 .setting .name small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
-.setting .val{color:var(--muted);font-size:13px}
+.setting .val{color:var(--muted);font-size:14px}
 .mnt-card{position:relative;overflow:hidden;padding:16px 14px;min-height:118px}
 .mnt-title{font-size:15px;font-weight:600;margin-bottom:14px}
 .mnt-stats{display:flex;width:64%}
 .mstat{flex:1;border-right:1px solid rgba(255,255,255,.07);padding-right:8px;margin-right:8px}
 .mstat:last-child{border-right:none}
 .mstat span{color:var(--muted);font-size:12px;display:block;margin-bottom:4px}
-.mstat b{font-size:23px;color:var(--accent2)}
+.mstat b{font-size:21px;font-weight:600;color:var(--text)}
 .mnt-img{position:absolute;right:-12px;bottom:-8px;width:44%;pointer-events:none}
 .tg-card{display:flex;align-items:center;gap:12px;padding:14px}
 .tg-ic{width:48px;height:48px;border-radius:50%;background:#5b2fd1;flex:none;display:flex;align-items:center;justify-content:center}
@@ -280,7 +280,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 
 /* всплывающее сообщение */
 .toast{position:absolute;left:50%;bottom:calc(102px + var(--bot));transform:translateX(-50%);z-index:50;
-  background:#1d1633;border:1px solid var(--accent);padding:10px 18px;border-radius:12px;
+  background:#131a2c;border:1px solid rgba(255,255,255,.1);padding:10px 18px;border-radius:12px;
   font-size:13px;display:none;align-items:center;gap:10px;animation:toastin .2s ease;
   width:max-content;max-width:calc(100% - 32px);line-height:1.4}
 .toast.on{display:flex}
@@ -309,7 +309,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
     <div class="hero-wrap" id="hero-wrap"><div class="hero">
       <img src="img/rock-neutral.webp" alt="Рокки" width="360" height="322" fetchpriority="high">
       <div>
-        <div class="phrase">Маленький шаг сегодня — большая гора завтра.</div>
+        <div class="phrase">Маленький шаг сегодня — большая гора завтра</div>
         <div class="hint">Новые советы + Напоминания в Telegram</div>
       </div>
     </div></div>
@@ -399,7 +399,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
     <div class="row" onclick="openPicker()"><span>Когда сделать?</span><span class="val"><span id="t-due-label">Без срока</span> <span class="chev">›</span></span></div>
     <button class="btn" id="save-btn" disabled onclick="saveTask()">Положить</button>
     <button class="btn dark" onclick="closeOverlay('o-task')">Отмена</button>
-    <div class="rockhint"><img src="img/rock-neutral.webp" alt="" loading="lazy"><span>Камень рядом и напомнит<br>в нужный момент</span></div>
+    <div class="rockhint"><img src="img/rock-neutral.webp" alt="" loading="lazy"><span>Камень подержит дело,<br>пока не сделаешь</span></div>
     <button class="btn dark" id="del-btn" onclick="deleteTask()">Удалить дело</button>
   </div>
 
@@ -491,7 +491,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.8.7';
+const APP_VERSION = '1.8.8';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -728,7 +728,7 @@ function completeTask(id) {
   }
   save();
   setTimeout(() => {
-    toast(regular ? 'Сегодняшний раз засчитан! Следующий — ' + fmtDue(t.due, t.allDay) + '.' : 'Готово! Камень гордится тобой.', true);
+    toast(regular ? 'Засчитано. Следующий раз — ' + fmtDue(t.due, t.allDay) + '.' : 'Готово! Камень гордится тобой.', true);
     renderTasks(); renderDone();
     if (current === 'river') renderRiver();
   }, 400);
