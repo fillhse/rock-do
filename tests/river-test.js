@@ -46,18 +46,24 @@
     // отменил выполнение — «донёс» честно пропал, вечером предлагают перенести или отпустить
     const rec = db.done.find((d) => d.taskId === pickId);
     restoreDone(rec.id); await sleep(30);
-    const newId = db.tasks.find((t) => t.title === pickTitle).id;
-    db.river.taskId = newId; db.river.history = db.river.history.map((h) => ({ ...h, taskId: newId })); save(); // вернувшееся дело — новое
+    save(); // как в приложении: сохранение снимает отметку об удалении
+    check('вернул сделанное — то же дело: прежний id, отметки об удалении нет', db.tasks.some((t) => t.id === pickId && t.title === pickTitle) && !db.deleted['t:' + pickId]);
     renderRiver(); await sleep(30);
     check('отменил выполнение — серии нет, вечером: «на завтра» или «отпустить»',
       !streakTxt() && body().querySelector('.rv-today .st').textContent === 'в пути' && /На завтра/.test(body().textContent));
     [...body().querySelectorAll('button')].find((b) => /На завтра/.test(b.textContent)).click(); await sleep(30);
-    check('«На завтра» — камушек ждёт утром', /ждёт утром/.test(body().textContent) && db.river.carry === newId);
+    check('«На завтра» — камушек ждёт утром', /ждёт утром/.test(body().textContent) && db.river.carry === pickId);
 
     // следующее утро: перенесённый выбран заранее
     db.river.date = '2000-01-01'; save();
     at(8); riverPick = null; renderRiver(); await sleep(30);
     check('следующее утро: перенесённый камушек уже выбран', body().querySelector('.rv-peb.on b').textContent === pickTitle);
+
+    // дело удалено с камня — не пишем «Отпустили», этого никто не делал
+    at(8); db.river = { ...db.river, date: localDay(), taskId: pickId, carry: null, released: false }; db.tasks = db.tasks.filter((t) => t.id !== pickId); save(); renderAll();
+    at(19); renderRiver(); await sleep(30);
+    check('дело удалено с камня — вечером «Дела больше нет на камне», а не «Отпустили»', /Дела больше нет на камне/.test(body().textContent) && !/Отпустили/.test(body().textContent));
+    db.river = null; at(8);
 
     // всё сделано — бросать нечего, совет про отдых
     db.tasks = []; save(); renderAll(); renderRiver(); await sleep(30);

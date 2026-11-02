@@ -491,7 +491,7 @@ html.dragging,html.dragging *{user-select:none;-webkit-user-select:none;-webkit-
 'use strict';
 /* Версия приложения — единственное место. Её же получает service worker (sw.js?v=…) как имя кэша,
    поэтому после правок достаточно поднять её здесь. */
-const APP_VERSION = '1.8.6';
+const APP_VERSION = '1.8.7';
 const $ = (id) => document.getElementById(id);
 const DAY = 86400e3;
 
@@ -757,7 +757,8 @@ function restoreDone(id) {
   db.done = db.done.filter((x) => x !== d);
   const src = d.fromRepeat && db.tasks.find((x) => x.id === d.taskId);
   if (src) src.due = d.prevDue; // отмена этого выполнения: срок откатывается
-  else db.tasks.push({ id: newId(), title: d.title, due: d.fromRepeat ? d.prevDue : null, rep: d.fromRepeat ? d.rep : 'never', pos: topPos(db.tasks) });
+  // прежний id: дело то же самое — например, оно остаётся камушком дня (отметка об удалении снимется при сохранении)
+  else db.tasks.push({ id: d.taskId || newId(), title: d.title, due: d.fromRepeat ? d.prevDue : null, rep: d.fromRepeat ? d.rep : 'never', pos: topPos(db.tasks) });
   toast(d.fromRepeat ? 'Выполнение отменено — задача снова на камне' : 'Задача вернулась на камень');
   save(); renderAll();
 }
@@ -1103,7 +1104,7 @@ function renderRiver() {
     body.innerHTML = card + text('Камушек дня на месте.' + (streak > 1 ? ` Это ${streak}-й день подряд.` : '') + '\nРокки гордится и идёт спать.');
   } else if (r.carry === r.taskId || r.released || !alive) {
     $('rv-title').textContent = slot.title;
-    body.innerHTML = card + text(r.carry === r.taskId ? 'Камушек ждёт утром у истока.' : 'Отпустили. Завтра — новый камушек.');
+    body.innerHTML = card + text(r.carry === r.taskId ? 'Камушек ждёт утром у истока.' : r.released ? 'Отпустили. Завтра — новый камушек.' : 'Дела больше нет на камне. Завтра — новый камушек.');
   } else {
     $('rv-title').textContent = slot.title;
     body.innerHTML = card + text('Камушек сегодня не доплыл — бывает.\nПеренести его на завтра или отпустить?') +
